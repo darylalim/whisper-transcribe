@@ -1,0 +1,2 @@
+docling[asr]
+streamlit
