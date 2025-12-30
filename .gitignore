@@ -2,4 +2,5 @@
 .ipynb_checkpoints
 *.ipynb
 streamlit_env
+streamlit_appV1.py
 mlx_whisper_example.py
