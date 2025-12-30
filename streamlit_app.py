@@ -1,10 +1,8 @@
-# Import packages
-from pathlib import Path
-import streamlit as st
 import tempfile
+from pathlib import Path
 
+import streamlit as st
 from docling_core.types.doc import DoclingDocument
-
 from docling.datamodel import asr_model_specs
 from docling.datamodel.base_models import ConversionStatus, InputFormat
 from docling.datamodel.document import ConversionResult
@@ -59,11 +57,10 @@ def asr_pipeline_conversion(audio_path: Path) -> DoclingDocument:
     return result.document
 
 st.title("Automatic Speech Recognition Pipeline")
-st.write("Transcribe audio files to Markdown text.")
+st.write("Transcribe audio files to Markdown text using the MLX Whisper models on Apple Silicon devices.")
 
-# Drag and drop upload audio file
 uploaded_file = st.file_uploader(
-    "Upload an audio file",
+    "Upload audio file",
     type=["mp3"],
     accept_multiple_files=False,
     help="Accepts .mp3 only. Maximum file size is 2 MB."
@@ -80,8 +77,7 @@ if uploaded_file is not None:
     else:
         st.success(f"File uploaded: {uploaded_file.name} ({file_size / (1024 * 1024):.2f} MB)")
         
-        # Button to generate transcript
-        if st.button("Generate Transcript", type="primary"):
+        if st.button("Transcribe", type="primary"):
             # Save uploaded file to temporary location
             with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
                 tmp_file.write(uploaded_file.getvalue())
@@ -97,7 +93,7 @@ if uploaded_file is not None:
                 st.session_state.transcript = transcript
                 st.session_state.filename = uploaded_file.name
                 
-                st.success("Transcription complete!")
+                st.success("Done.")
                 
             except Exception as e:
                 st.error(f"Error during transcription: {str(e)}")
@@ -106,17 +102,15 @@ if uploaded_file is not None:
                 if tmp_path.exists():
                     tmp_path.unlink()
 
-# Display transcript if available
 if "transcript" in st.session_state:
     st.subheader("Transcript")
     st.markdown(st.session_state.transcript)
     
-    # Button to download transcript
     original_filename = st.session_state.filename.rsplit(".", 1)[0]
     download_filename = f"{original_filename}_transcript.md"
     
     st.download_button(
-        label="Download Transcript",
+        label="Download",
         data=st.session_state.transcript,
         file_name=download_filename,
         mime="text/markdown"
