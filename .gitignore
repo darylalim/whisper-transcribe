@@ -2,7 +2,3 @@
 .ipynb_checkpoints
 *.ipynb
 streamlit_env
-streamlit_app_v1.py
-streamlit_app_v2.py
-mlx_whisper_example.py
-explore_docling_attributes.py
