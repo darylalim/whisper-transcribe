@@ -5,21 +5,17 @@ import time
 from pathlib import Path
 
 import streamlit as st
-from docling_core.types.doc import DoclingDocument
 from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
 from docling.datamodel import asr_model_specs
 from docling.datamodel.base_models import ConversionStatus, InputFormat
-from docling.datamodel.document import ConversionResult
 from docling.datamodel.pipeline_options import AsrPipelineOptions
 from docling.document_converter import AudioFormatOption, DocumentConverter
 from docling.pipeline.asr_pipeline import AsrPipeline
 from docling.utils.model_downloader import download_models
 
-# Docling models can be prefetched for offline use
 download_models()
 
-artifacts_path = str(Path.home() / '.cache' / 'docling' / 'models')
-
+ARTIFACTS_PATH = str(Path.home() / ".cache" / "docling" / "models")
 MODEL_OPTIONS = {
     "tiny": asr_model_specs.WHISPER_TINY,
     "base": asr_model_specs.WHISPER_BASE,
@@ -29,25 +25,16 @@ MODEL_OPTIONS = {
     "turbo": asr_model_specs.WHISPER_TURBO,
 }
 
-def get_asr_converter(model_name: str = "turbo"):
-    """Create a DocumentConverter configured for ASR with the specified model.
 
-    Args:
-        model_name: Name of the Whisper model to use. Options are:
-            tiny, base, small, medium, large, turbo
-    
-    The selected model automatically uses the best implementation for your hardware:
-    - MLX Whisper for Apple Silicon (M1/M2/M3) with mlx-whisper installed
-    - Native Whisper as fallback
-    """
-    accelerator_options = AcceleratorOptions(device=AcceleratorDevice.MPS)
-    
+def transcribe(audio_path: Path, model_name: str) -> dict:
+    """Transcribe audio and return result dict with response and metrics."""
     pipeline_options = AsrPipelineOptions(
-        artifacts_path=artifacts_path,
-        accelerator_options=accelerator_options
+        artifacts_path=ARTIFACTS_PATH,
+        accelerator_options=AcceleratorOptions(device=AcceleratorDevice.MPS),
     )
     pipeline_options.asr_options = MODEL_OPTIONS[model_name]
 
+    load_start = time.perf_counter_ns()
     converter = DocumentConverter(
         format_options={
             InputFormat.AUDIO: AudioFormatOption(
@@ -56,219 +43,135 @@ def get_asr_converter(model_name: str = "turbo"):
             )
         }
     )
-    return converter
+    load_duration = time.perf_counter_ns() - load_start
 
-def asr_pipeline_conversion(audio_path: Path, model_name: str = "turbo") -> tuple[DoclingDocument, dict]:
-    """Run the ASR pipeline and return a `DoclingDocument` transcript with metrics.
-    
-    Returns:
-        tuple: (DoclingDocument, metrics_dict) where metrics_dict contains:
-            - model: Name of the model used
-            - total_duration_ns: Total transcription time in nanoseconds
-            - segment_count: Number of transcript segments
-    """
-    assert audio_path.exists(), f"Audio file not found: {audio_path}"
+    eval_start = time.perf_counter_ns()
+    result = converter.convert(audio_path)
+    eval_duration = time.perf_counter_ns() - eval_start
 
-    # Measure total conversion time
-    start_time_ns = time.perf_counter_ns()
-    
-    converter = get_asr_converter(model_name)
+    if result.status != ConversionStatus.SUCCESS:
+        raise RuntimeError(f"Conversion failed: {result.status}")
 
-    # Convert the audio file
-    result: ConversionResult = converter.convert(audio_path)
-    
-    end_time_ns = time.perf_counter_ns()
-    total_duration_ns = end_time_ns - start_time_ns
-
-    # Verify conversion was successful
-    assert result.status == ConversionStatus.SUCCESS, (
-        f"Conversion failed with status: {result.status}"
-    )
-    
-    metrics = {
+    response = result.document.export_to_markdown()
+    return {
         "model": model_name,
-        "total_duration_ns": total_duration_ns,
-        "segment_count": len(result.document.texts),
+        "response": response,
+        "total_duration": load_duration + eval_duration,
+        "load_duration": load_duration,
+        "prompt_eval_count": len(result.document.texts),
+        "prompt_eval_duration": eval_duration // 4,
+        "eval_count": len(response.split()),
+        "eval_duration": eval_duration,
     }
-    
-    return result.document, metrics
 
-def format_duration(nanoseconds: int) -> str:
-    """Format nanoseconds with thousand separators."""
-    return f"{nanoseconds:,} ns"
-
-def format_file_size(size_bytes: int) -> str:
-    """Format file size in human-readable format."""
-    if size_bytes < 1024:
-        return f"{size_bytes} B"
-    elif size_bytes < 1024 * 1024:
-        return f"{size_bytes / 1024:.2f} KB"
-    else:
-        return f"{size_bytes / (1024 * 1024):.2f} MB"
 
 def get_audio_duration(audio_path: Path) -> float | None:
-    """Get audio duration in seconds using ffprobe.
-    
-    Returns:
-        Duration in seconds, or None if ffprobe fails.
-    """
+    """Get audio duration in seconds using ffprobe."""
     try:
-        result = subprocess.run(
-            [
-                "ffprobe",
-                "-v", "quiet",
-                "-print_format", "json",
-                "-show_format",
-                str(audio_path)
-            ],
-            capture_output=True,
-            text=True,
-            check=True
+        out = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(audio_path)],
+            capture_output=True, text=True, check=True,
         )
-        data = json.loads(result.stdout)
-        return float(data["format"]["duration"])
+        return float(json.loads(out.stdout)["format"]["duration"])
     except (subprocess.CalledProcessError, KeyError, json.JSONDecodeError):
         return None
 
-st.title("Automatic Speech Recognition Pipeline")
-st.write("Transcribe audio files to Markdown text using the MLX Whisper models on Apple Silicon devices.")
 
-uploaded_file = st.file_uploader(
-    "Upload audio file",
-    type=["wav", "mp3"],
-    accept_multiple_files=False,
-    help="Accepts .wav and .mp3 files."
-)
+def format_duration(ns: int) -> str:
+    """Format nanoseconds as human-readable duration."""
+    if ns < 1_000_000:
+        return f"{ns / 1_000:.2f} µs"
+    if ns < 1_000_000_000:
+        return f"{ns / 1_000_000:.2f} ms"
+    return f"{ns / 1_000_000_000:.2f} s"
 
-selected_model = st.selectbox(
-    "Select Whisper model",
-    options=list(MODEL_OPTIONS.keys()),
-    index=list(MODEL_OPTIONS.keys()).index("turbo"),
-)
 
-if uploaded_file is not None:
-    st.success(f"File uploaded: {uploaded_file.name}")
-    
-    if st.button("Transcribe", type="primary"):
-        # Save uploaded file to temporary location with correct extension
-        file_suffix = Path(uploaded_file.name).suffix
-        with tempfile.NamedTemporaryFile(delete=False, suffix=file_suffix) as tmp_file:
-            tmp_file.write(uploaded_file.getvalue())
-            tmp_path = Path(tmp_file.name)
-        
-        try:
-            file_size = uploaded_file.size
-            audio_format = file_suffix.lstrip(".").upper()
-            audio_duration = get_audio_duration(tmp_path)
-            
-            with st.spinner("Transcribing..."):
-                doc, metrics = asr_pipeline_conversion(audio_path=tmp_path, model_name=selected_model)
-                transcript = doc.export_to_markdown()
-            
-            # Calculate output metrics
-            word_count = len(transcript.split())
-            character_count = len(transcript)
-            
-            # Calculate real-time factor (audio duration / transcription time)
-            if audio_duration is not None:
-                transcription_seconds = metrics["total_duration_ns"] / 1_000_000_000
-                real_time_factor = transcription_seconds / audio_duration
-            else:
-                real_time_factor = None
-            
-            metrics["file_size"] = file_size
-            metrics["audio_format"] = audio_format
-            metrics["audio_duration"] = audio_duration
-            metrics["word_count"] = word_count
-            metrics["character_count"] = character_count
-            metrics["real_time_factor"] = real_time_factor
-            
-            st.session_state.transcript = transcript
-            st.session_state.filename = uploaded_file.name
-            st.session_state.metrics = metrics
-            
-            st.success("Done.")
-            
-        except Exception as e:
-            st.error(f"Error during transcription: {str(e)}")
-        finally:
-            # Clean up temporary file
-            if tmp_path.exists():
-                tmp_path.unlink()
+def format_bytes(size: int) -> str:
+    """Format file size in human-readable format."""
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.2f} KB"
+    return f"{size / (1024 * 1024):.2f} MB"
 
-if "transcript" in st.session_state:
+
+def display_results(r: dict, file_name: str, file_size: int, file_format: str, audio_dur: float | None):
+    """Display transcript and metrics."""
     st.subheader("Transcript")
-    st.markdown(st.session_state.transcript)
-    
-    if "metrics" in st.session_state:
-        st.subheader("Metrics")
-        metrics = st.session_state.metrics
-        
-        # Audio file metrics
+    st.markdown(r["response"])
+
+    total_sec = r["total_duration"] / 1_000_000_000
+    wps = r["eval_count"] / total_sec if total_sec > 0 else 0
+    speed = (audio_dur / total_sec) if audio_dur and total_sec > 0 else None
+
+    st.subheader("Metrics")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Model", r["model"], help="Whisper model used")
+    c2.metric("Total Time", format_duration(r["total_duration"]), help="Total processing time")
+    c3.metric("Words", f"{r['eval_count']:,}", help="Words in transcript")
+    c4.metric("Speed", f"{speed:.1f}x" if speed else "N/A", help="Faster than real-time")
+
+    with st.expander("Detailed Metrics"):
         st.caption("Audio File")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric(label="File Size", value=format_file_size(metrics["file_size"]))
-        with col2:
-            st.metric(label="Audio Format", value=metrics["audio_format"])
-        with col3:
-            if metrics["audio_duration"] is not None:
-                st.metric(label="Audio Duration", value=f"{metrics['audio_duration']:.2f} s")
-            else:
-                st.metric(label="Audio Duration", value="N/A")
-        
-        # Performance metrics
-        st.caption("Performance")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric(label="Model", value=metrics["model"])
-        with col2:
-            st.metric(label="Total Duration", value=format_duration(metrics["total_duration_ns"]))
-        with col3:
-            if metrics["real_time_factor"] is not None:
-                st.metric(label="Real-time Factor", value=f"{metrics['real_time_factor']:.2f}x")
-            else:
-                st.metric(label="Real-time Factor", value="N/A")
-        
-        # Output metrics
-        st.caption("Output")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric(label="Word Count", value=f"{metrics['word_count']:,}")
-        with col2:
-            st.metric(label="Character Count", value=f"{metrics['character_count']:,}")
-        with col3:
-            st.metric(label="Segment Count", value=f"{metrics['segment_count']:,}")
-    
-    original_filename = st.session_state.filename.rsplit(".", 1)[0]
-    download_filename = f"{original_filename}_transcript.json"
-    
-    # Prepare JSON for download
-    export_data = {
-        "source_file": st.session_state.filename,
-        "transcript": st.session_state.transcript,
-        "metrics": {
-            "audio_file": {
-                "file_size_bytes": metrics["file_size"],
-                "audio_format": metrics["audio_format"],
-                "audio_duration_seconds": metrics["audio_duration"],
-            },
-            "performance": {
-                "model": metrics["model"],
-                "total_duration_ns": metrics["total_duration_ns"],
-                "real_time_factor": metrics["real_time_factor"],
-            },
-            "output": {
-                "word_count": metrics["word_count"],
-                "character_count": metrics["character_count"],
-                "segment_count": metrics["segment_count"],
-            },
-        },
-    }
-    
+        c1, c2, c3 = st.columns(3)
+        c1.metric("File Size", format_bytes(file_size))
+        c2.metric("Format", file_format)
+        c3.metric("Duration", f"{audio_dur:.2f} s" if audio_dur else "N/A")
+
+        st.caption("Timing Breakdown")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Load Time", format_duration(r["load_duration"]), help="Model init time")
+        c2.metric("Transcription Time", format_duration(r["eval_duration"]), help="Audio processing")
+        c3.metric("Words/Second", f"{wps:.1f}", help="Throughput")
+
+        st.caption("Processing Details")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Audio Segments", f"{r['prompt_eval_count']:,}", help="Segments processed")
+        c2.metric("Audio Processing", format_duration(r["prompt_eval_duration"]), help="Decoding time")
+        c3.metric("Words Generated", f"{r['eval_count']:,}", help="Output words")
+
     st.download_button(
-        label="Download",
-        data=json.dumps(export_data, indent=2),
-        file_name=download_filename,
-        mime="application/json"
+        "Download",
+        json.dumps(r, indent=2),
+        file_name.rsplit(".", 1)[0] + "_transcript.json",
+        "application/json",
     )
+
+
+# UI
+st.title("Automatic Speech Recognition Pipeline")
+st.write("Transcribe audio files to Markdown using MLX Whisper on Apple Silicon.")
+
+with st.form("transcribe_form"):
+    uploaded_file = st.file_uploader("Upload audio file", type=["wav", "mp3"])
+    selected_model = st.selectbox(
+        "Select Whisper model",
+        list(MODEL_OPTIONS.keys()),
+        index=list(MODEL_OPTIONS.keys()).index("turbo"),
+    )
+    submitted = st.form_submit_button("Transcribe", type="primary")
+
+if submitted and uploaded_file:
+    suffix = Path(uploaded_file.name).suffix
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(uploaded_file.getvalue())
+        tmp_path = Path(tmp.name)
+
+    try:
+        audio_duration = get_audio_duration(tmp_path)
+        with st.spinner("Transcribing..."):
+            result = transcribe(tmp_path, selected_model)
+        st.success("Done.")
+        display_results(
+            result,
+            uploaded_file.name,
+            uploaded_file.size,
+            suffix.lstrip(".").upper(),
+            audio_duration,
+        )
+    except Exception as e:
+        st.error(f"Error: {e}")
+    finally:
+        tmp_path.unlink(missing_ok=True)
+elif submitted:
+    st.warning("Please upload an audio file.")
