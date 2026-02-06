@@ -24,7 +24,7 @@ streamlit run streamlit_app.py
 
 - snake_case for functions/variables, PascalCase for classes
 - Type annotations on all parameters and returns
-- Custom `ToolError` exception for tool errors
+- `RuntimeError` for known transcription failures (no custom exception class)
 - isort with combine-as-imports (configured in `pyproject.toml`)
 
 ## Dependencies
@@ -51,6 +51,7 @@ Docling MLX Whisper variants via `asr_model_specs`, accelerated with `Accelerato
 
 - `@st.cache_resource` on `_get_converter()` to cache `DocumentConverter` per model
 - `time.perf_counter()` for timing (fractional seconds)
+- `MODEL_NAMES` pre-computed from `MODEL_OPTIONS.keys()` to avoid repeated list creation
 
 ### Audio Formats
 
@@ -58,9 +59,10 @@ Supported: wav, mp3, m4a, ogg, flac, webm, aac
 
 ### Error Handling
 
-- `ToolError` caught explicitly for transcription failures
+- `RuntimeError` caught explicitly for transcription failures
 - Unexpected exceptions shown with `st.exception()` for debugging
 - ffprobe failure is non-blocking — transcription proceeds with duration as N/A
+- ffprobe uses plain text output mode (`-show_entries format=duration`) instead of JSON
 
 ### JSON Download
 
@@ -70,7 +72,7 @@ Fields in the downloadable JSON via `st.download_button`:
 - `audio_duration` (float | null) — audio duration in seconds
 - `transcript` (string) — generated text
 - `num_words` (int) — word count
-- `eval_duration` (float) — transcription time in seconds
+- `eval_duration` (float) — transcription time in seconds (rounded to 2 decimal places)
 
 ### Metrics
 
