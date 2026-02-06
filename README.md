@@ -54,4 +54,4 @@ Upload an audio file (wav, mp3, m4a, ogg, flac, webm, aac), select a model, and 
 }
 ```
 
-Duration values are in fractional seconds. `audio_duration` is `null` if ffprobe cannot determine it.
+Duration values are in seconds. `eval_duration` is rounded to 2 decimal places. `audio_duration` is `null` if ffprobe cannot determine it.
