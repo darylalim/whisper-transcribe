@@ -1,2 +1,7 @@
+# Runtime
 docling[asr]
 streamlit
+
+# Dev
+pyright
+ruff
