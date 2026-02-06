@@ -4,10 +4,11 @@ Transcribe audio files to Markdown using MLX Whisper models on Apple Silicon.
 
 ## Features
 
-- **6 Whisper models**: tiny, base, small, medium, large, turbo
-- **MPS acceleration**: Optimized for Apple Silicon (M1/M2/M3/M4)
-- **Metrics dashboard**: Model, processing time, word count, speed multiplier
-- **JSON export**: Download transcript with detailed timing metrics
+- **6 Whisper models** — tiny, base, small, medium, large, turbo
+- **Apple Silicon acceleration** — MPS via MLX framework (M1/M2/M3/M4)
+- **Model caching** — converters cached per model for fast repeated transcriptions
+- **Metrics dashboard** — model, audio duration, word count, eval duration
+- **JSON export** — download transcript with metrics
 
 ## Requirements
 
@@ -15,14 +16,14 @@ Transcribe audio files to Markdown using MLX Whisper models on Apple Silicon.
 - Python 3.12+
 - FFmpeg
 
-## Installation
+## Setup
 
-1. Install FFmpeg (via [Homebrew](https://brew.sh/)):
+1. Install FFmpeg:
    ```bash
    brew install ffmpeg
    ```
 
-2. Set up and activate virtual environment:
+2. Create and activate virtual environment:
    ```bash
    python3.12 -m venv streamlit_env
    source streamlit_env/bin/activate
@@ -39,21 +40,18 @@ Transcribe audio files to Markdown using MLX Whisper models on Apple Silicon.
 streamlit run streamlit_app.py
 ```
 
-Upload a WAV or MP3 file, select a model, and click Transcribe.
+Upload an audio file (wav, mp3, m4a, ogg, flac, webm, aac), select a model, and click Transcribe.
 
-## JSON Export Format
+## JSON Export
 
 ```json
 {
   "model": "turbo",
-  "response": "transcribed text...",
-  "total_duration": 1234567890,
-  "load_duration": 123456789,
-  "prompt_eval_count": 5,
-  "prompt_eval_duration": 30864197,
-  "eval_count": 150,
-  "eval_duration": 123456789
+  "audio_duration": 10.05,
+  "transcript": "transcribed text...",
+  "num_words": 42,
+  "eval_duration": 3.27
 }
 ```
 
-All duration values are in nanoseconds.
+Duration values are in fractional seconds. `audio_duration` is `null` if ffprobe cannot determine it.
