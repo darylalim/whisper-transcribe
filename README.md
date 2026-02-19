@@ -14,30 +14,20 @@ Transcribe audio files to Markdown using MLX Whisper models on Apple Silicon.
 
 - macOS with Apple Silicon
 - Python 3.12+
-- FFmpeg
+- [FFmpeg](https://formulae.brew.sh/formula/ffmpeg)
+- [uv](https://docs.astral.sh/uv/)
 
 ## Setup
 
-1. Install FFmpeg:
-   ```bash
-   brew install ffmpeg
-   ```
-
-2. Create and activate virtual environment:
-   ```bash
-   python3.12 -m venv streamlit_env
-   source streamlit_env/bin/activate
-   ```
-
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+brew install ffmpeg
+uv sync
+```
 
 ## Usage
 
 ```bash
-streamlit run streamlit_app.py
+uv run streamlit run streamlit_app.py
 ```
 
 Upload an audio file (wav, mp3, m4a, ogg, flac, webm, aac), select a model, and click Transcribe.
