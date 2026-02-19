@@ -1,82 +1,79 @@
 # CLAUDE.md
 
-## Project Overview
-
 Streamlit web app for automatic speech recognition using MLX Whisper models on Apple Silicon.
 
 ## Setup
 
 ```bash
-python3.12 -m venv streamlit_env
-source streamlit_env/bin/activate
-pip install -r requirements.txt
-streamlit run streamlit_app.py
+uv sync
+uv run streamlit run streamlit_app.py
 ```
 
 ## Commands
 
-- **Lint**: `ruff check .`
-- **Format**: `ruff format .`
-- **Typecheck**: `pyright`
-- **Test**: `pytest`
+- **Lint**: `uv run ruff check .`
+- **Format**: `uv run ruff format .`
+- **Typecheck**: `uv run ty check`
+- **Test**: `uv run pytest`
 
 ## Code Style
 
 - snake_case for functions/variables, PascalCase for classes
 - Type annotations on all parameters and returns
 - `RuntimeError` for known transcription failures (no custom exception class)
-- isort with combine-as-imports (configured in `pyproject.toml`)
+- Import sorting via ruff with combine-as-imports
 
 ## Dependencies
 
 - `docling[asr]` — ASR pipeline and MLX Whisper models
 - `streamlit` — web UI
 - `ffmpeg` — audio processing (system dependency)
-- `ruff` — linting/formatting (dev)
+- `ruff` — linting and formatting (dev)
+- `ty` — type checking (dev)
+- `pytest` — testing (dev)
 
 ## Architecture
 
-### Entry Point
-
-`streamlit_app.py` — single-file app.
+- `streamlit_app.py` — single-file app entry point
+- `tests/test_app.py` — unit tests
+- `tests/data/audio/sample_10s.mp3` — sample audio fixture
 
 ### Models
 
-Docling MLX Whisper variants via `asr_model_specs`, accelerated with `AcceleratorDevice.MPS`:
-
-- `WHISPER_TINY_MLX`, `WHISPER_BASE_MLX`, `WHISPER_SMALL_MLX`
-- `WHISPER_MEDIUM_MLX`, `WHISPER_LARGE_MLX`, `WHISPER_TURBO_MLX`
+Six Docling MLX Whisper variants via `asr_model_specs`, accelerated with `AcceleratorDevice.MPS`: tiny, base, small, medium, large, turbo.
 
 ### Performance
 
-- `@st.cache_resource` on `_get_converter()` to cache `DocumentConverter` per model
-- `time.perf_counter()` for timing (fractional seconds)
-- `MODEL_NAMES` pre-computed from `MODEL_OPTIONS.keys()` to avoid repeated list creation
+- `@st.cache_resource` on `_get_converter()` — caches `DocumentConverter` per model
+- `ARTIFACTS_PATH` — pre-computed at module level
+- `MODEL_NAMES` — pre-computed as `tuple(MODEL_OPTIONS)`
+- `time.perf_counter()` — fractional-second timing
 
 ### Audio Formats
 
-Supported: wav, mp3, m4a, ogg, flac, webm, aac
+wav, mp3, m4a, ogg, flac, webm, aac
 
 ### Error Handling
 
 - `RuntimeError` caught explicitly for transcription failures
-- Unexpected exceptions shown with `st.exception()` for debugging
-- ffprobe failure is non-blocking — transcription proceeds with duration as N/A
-- ffprobe uses plain text output mode (`-show_entries format=duration`) instead of JSON
+- Unexpected exceptions shown with `st.exception()`
+- ffprobe failure is non-blocking (duration shows as N/A)
+- ffprobe uses plain text output mode (`-show_entries format=duration`)
 
 ### JSON Download
 
 Fields in the downloadable JSON via `st.download_button`:
 
 - `model` (string) — model name
-- `audio_duration` (float | null) — audio duration in seconds
+- `audio_duration` (float | null) — seconds
 - `transcript` (string) — generated text
 - `num_words` (int) — word count
-- `eval_duration` (float) — transcription time in seconds (rounded to 2 decimal places)
+- `eval_duration` (float) — transcription time in seconds, rounded to 2 decimal places
 
-### Metrics
+### Testing
 
-`st.metric` displays all JSON fields except transcript.
+- `_get_audio_duration` — real ffprobe calls and mocked subprocess
+- `_transcribe` — mocked `_get_converter` and `ConversionStatus`
 
 ## Resources
 
