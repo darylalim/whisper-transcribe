@@ -1,3 +1,23 @@
+[project]
+name = "asr-pipeline"
+version = "0.1.0"
+description = "Transcribe audio files to Markdown using MLX Whisper models on Apple Silicon."
+requires-python = ">=3.12"
+dependencies = [
+    "docling[asr]",
+    "streamlit",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ty",
+    "ruff",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
 [tool.ruff]
 line-length = 100
 
@@ -7,6 +27,5 @@ select = ["E", "F", "I", "W"]
 [tool.ruff.lint.isort]
 combine-as-imports = true
 
-[tool.pyright]
-pythonVersion = "3.12"
-typeCheckingMode = "basic"
+[tool.ty.environment]
+python-version = "3.12"
