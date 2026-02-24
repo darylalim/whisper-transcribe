@@ -12,26 +12,18 @@ from docling.datamodel.pipeline_options import AsrPipelineOptions
 from docling.document_converter import AudioFormatOption, DocumentConverter
 from docling.pipeline.asr_pipeline import AsrPipeline
 
-MODEL_OPTIONS = {
-    "tiny": asr_model_specs.WHISPER_TINY_MLX,
-    "base": asr_model_specs.WHISPER_BASE_MLX,
-    "small": asr_model_specs.WHISPER_SMALL_MLX,
-    "medium": asr_model_specs.WHISPER_MEDIUM_MLX,
-    "large": asr_model_specs.WHISPER_LARGE_MLX,
-    "turbo": asr_model_specs.WHISPER_TURBO_MLX,
-}
+ASR_MODEL = asr_model_specs.WHISPER_TURBO_MLX
 AUDIO_FORMATS = ("wav", "mp3", "m4a", "ogg", "flac", "webm", "aac")
-MODEL_NAMES = tuple(MODEL_OPTIONS)
 ARTIFACTS_PATH = str(Path.home() / ".cache" / "docling" / "models")
 
 
 @st.cache_resource
-def _get_converter(model_name: str) -> DocumentConverter:
+def _get_converter() -> DocumentConverter:
     options = AsrPipelineOptions(
         artifacts_path=ARTIFACTS_PATH,
         accelerator_options=AcceleratorOptions(device=AcceleratorDevice.MPS),
     )
-    options.asr_options = MODEL_OPTIONS[model_name]
+    options.asr_options = ASR_MODEL
     return DocumentConverter(
         format_options={
             InputFormat.AUDIO: AudioFormatOption(pipeline_cls=AsrPipeline, pipeline_options=options)
@@ -62,8 +54,8 @@ def _get_audio_duration(path: Path) -> float | None:
         return None
 
 
-def _transcribe(path: Path, model_name: str) -> tuple[str, float]:
-    converter = _get_converter(model_name)
+def _transcribe(path: Path) -> tuple[str, float]:
+    converter = _get_converter()
     start = time.perf_counter()
     result = converter.convert(path)
     elapsed = round(time.perf_counter() - start, 2)
@@ -78,9 +70,6 @@ st.write("Transcribe audio files to Markdown using MLX Whisper on Apple Silicon.
 
 with st.form("transcribe_form"):
     uploaded_file = st.file_uploader("Upload audio file", type=AUDIO_FORMATS)
-    selected_model = st.selectbox(
-        "Select Whisper model", MODEL_NAMES, index=MODEL_NAMES.index("turbo")
-    )
     submitted = st.form_submit_button("Transcribe", type="primary")
 
 if submitted and uploaded_file:
@@ -95,7 +84,7 @@ if submitted and uploaded_file:
             st.warning("Could not determine audio duration. Transcribing anyway.")
 
         with st.spinner("Transcribing..."):
-            transcript, eval_duration = _transcribe(tmp_path, selected_model)
+            transcript, eval_duration = _transcribe(tmp_path)
         st.success("Done.")
 
         st.subheader("Transcript")
@@ -104,17 +93,15 @@ if submitted and uploaded_file:
         num_words = len(transcript.split())
 
         st.subheader("Metrics")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Model", selected_model)
-        c2.metric("Audio Duration", f"{audio_duration:.2f} s" if audio_duration else "N/A")
-        c3.metric("Words", f"{num_words:,}")
-        c4.metric("Eval Duration", f"{eval_duration:.2f} s")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Audio Duration", f"{audio_duration:.2f} s" if audio_duration else "N/A")
+        c2.metric("Words", f"{num_words:,}")
+        c3.metric("Eval Duration", f"{eval_duration:.2f} s")
 
         st.download_button(
             "Download JSON",
             json.dumps(
                 {
-                    "model": selected_model,
                     "audio_duration": audio_duration,
                     "transcript": transcript,
                     "num_words": num_words,
