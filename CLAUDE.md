@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Streamlit web app for automatic speech recognition using MLX Whisper models on Apple Silicon.
+Streamlit web app for automatic speech recognition using the MLX Whisper turbo model on Apple Silicon.
 
 ## Setup
 
@@ -25,7 +25,7 @@ uv run streamlit run streamlit_app.py
 
 ## Dependencies
 
-- `docling[asr]` — ASR pipeline and MLX Whisper models
+- `docling[asr]` — ASR pipeline and MLX Whisper turbo model
 - `streamlit` — web UI
 - `ffmpeg` — audio processing (system dependency)
 - `ruff` — linting and formatting (dev)
@@ -38,15 +38,14 @@ uv run streamlit run streamlit_app.py
 - `tests/test_app.py` — unit tests
 - `tests/data/audio/sample_10s.mp3` — sample audio fixture
 
-### Models
+### Model
 
-Six Docling MLX Whisper variants via `asr_model_specs`, accelerated with `AcceleratorDevice.MPS`: tiny, base, small, medium, large, turbo.
+Single Docling MLX Whisper turbo variant via `asr_model_specs.WHISPER_TURBO_MLX`, accelerated with `AcceleratorDevice.MPS`.
 
 ### Performance
 
-- `@st.cache_resource` on `_get_converter()` — caches `DocumentConverter` per model
+- `@st.cache_resource` on `_get_converter()` — caches `DocumentConverter`
 - `ARTIFACTS_PATH` — pre-computed at module level
-- `MODEL_NAMES` — pre-computed as `tuple(MODEL_OPTIONS)`
 - `time.perf_counter()` — fractional-second timing
 
 ### Audio Formats
@@ -64,7 +63,6 @@ wav, mp3, m4a, ogg, flac, webm, aac
 
 Fields in the downloadable JSON via `st.download_button`:
 
-- `model` (string) — model name
 - `audio_duration` (float | null) — seconds
 - `transcript` (string) — generated text
 - `num_words` (int) — word count
