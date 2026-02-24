@@ -1,13 +1,13 @@
 # Automatic Speech Recognition (ASR) Pipeline
 
-Transcribe audio files to Markdown using MLX Whisper models on Apple Silicon.
+Transcribe audio files to Markdown using the MLX Whisper turbo model on Apple Silicon.
 
 ## Features
 
-- **6 Whisper models** — tiny, base, small, medium, large, turbo
+- **Whisper turbo model** — fast, high-quality transcription via Docling
 - **Apple Silicon acceleration** — MPS via MLX framework (M1/M2/M3/M4)
-- **Model caching** — converters cached per model for fast repeated transcriptions
-- **Metrics dashboard** — model, audio duration, word count, eval duration
+- **Converter caching** — cached for fast repeated transcriptions
+- **Metrics dashboard** — audio duration, word count, eval duration
 - **JSON export** — download transcript with metrics
 
 ## Requirements
@@ -30,13 +30,12 @@ uv sync
 uv run streamlit run streamlit_app.py
 ```
 
-Upload an audio file (wav, mp3, m4a, ogg, flac, webm, aac), select a model, and click Transcribe.
+Upload an audio file (wav, mp3, m4a, ogg, flac, webm, aac) and click Transcribe.
 
 ## JSON Export
 
 ```json
 {
-  "model": "turbo",
   "audio_duration": 10.05,
   "transcript": "transcribed text...",
   "num_words": 42,
