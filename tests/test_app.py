@@ -1,3 +1,4 @@
+import json
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -9,6 +10,7 @@ from streamlit_app import (
     ASR_MODEL,
     AUDIO_FORMATS,
     _get_audio_duration,
+    _handle_transcription,
     _transcribe,
 )
 
@@ -113,3 +115,98 @@ def test_transcribe_failure_raises_runtime_error(mock_converter):
 
     with pytest.raises(RuntimeError, match="Conversion failed"):
         _transcribe(SAMPLE_AUDIO)
+
+
+# --- _handle_transcription ---
+
+
+@pytest.fixture
+def mock_uploaded_file():
+    uploaded = MagicMock()
+    uploaded.name = "interview.mp3"
+    uploaded.read.return_value = b"fake audio bytes"
+    return uploaded
+
+
+@pytest.fixture
+def mock_st():
+    with patch("streamlit_app.st") as m:
+        m.spinner.return_value.__enter__ = MagicMock()
+        m.spinner.return_value.__exit__ = MagicMock(return_value=False)
+        m.columns.return_value = (MagicMock(), MagicMock())
+        yield m
+
+
+@patch("streamlit_app._transcribe", return_value=("Hello world", 1.23))
+@patch("streamlit_app._get_audio_duration", return_value=10.5)
+def test_handle_transcription_with_duration(
+    mock_duration, mock_transcribe, mock_st, mock_uploaded_file
+):
+    _handle_transcription(mock_uploaded_file)
+
+    mock_st.caption.assert_called_once_with("10.5s audio · 2 words · transcribed in 1.23s")
+    mock_st.code.assert_called_once_with("Hello world", language=None, wrap_lines=True)
+    col1, col2 = mock_st.columns.return_value
+    col1.download_button.assert_called_once()
+    txt_args = col1.download_button.call_args
+    assert txt_args[0][1] == "Hello world"
+    assert txt_args[0][2] == "interview_transcript.txt"
+    col2.download_button.assert_called_once()
+    payload = json.loads(col2.download_button.call_args[0][1])
+    assert payload == {
+        "audio_duration": 10.5,
+        "transcript": "Hello world",
+        "num_words": 2,
+        "eval_duration": 1.23,
+    }
+
+
+@patch("streamlit_app._transcribe", return_value=("Hello world", 1.23))
+@patch("streamlit_app._get_audio_duration", return_value=None)
+def test_handle_transcription_without_duration(
+    mock_duration, mock_transcribe, mock_st, mock_uploaded_file
+):
+    _handle_transcription(mock_uploaded_file)
+
+    mock_st.warning.assert_called_once()
+    mock_st.caption.assert_called_once_with("2 words · transcribed in 1.23s")
+    payload = json.loads(mock_st.columns.return_value[1].download_button.call_args[0][1])
+    assert payload["audio_duration"] is None
+
+
+@patch("streamlit_app._transcribe", side_effect=RuntimeError("Conversion failed: failure"))
+@patch("streamlit_app._get_audio_duration", return_value=10.5)
+def test_handle_transcription_runtime_error(
+    mock_duration, mock_transcribe, mock_st, mock_uploaded_file
+):
+    _handle_transcription(mock_uploaded_file)
+
+    mock_st.error.assert_called_once_with("Transcription failed: Conversion failed: failure")
+
+
+@patch("streamlit_app._transcribe", side_effect=ValueError("unexpected"))
+@patch("streamlit_app._get_audio_duration", return_value=10.5)
+def test_handle_transcription_unexpected_error(
+    mock_duration, mock_transcribe, mock_st, mock_uploaded_file
+):
+    _handle_transcription(mock_uploaded_file)
+
+    mock_st.error.assert_called_once_with("Unexpected error: unexpected")
+    mock_st.exception.assert_called_once()
+
+
+@patch("streamlit_app._transcribe", return_value=("Hello world", 1.23))
+@patch("streamlit_app._get_audio_duration", return_value=10.5)
+def test_handle_transcription_temp_dir_cleanup(
+    mock_duration, mock_transcribe, mock_st, mock_uploaded_file
+):
+    # Capture the path passed to _get_audio_duration to verify cleanup
+    called_paths = []
+    mock_duration.side_effect = lambda p: (called_paths.append(p), 10.5)[1]
+
+    _handle_transcription(mock_uploaded_file)
+
+    assert len(called_paths) == 1
+    tmp_path = called_paths[0]
+    assert tmp_path.name == "audio.mp3"
+    assert not tmp_path.exists(), "Temp file should be cleaned up by TemporaryDirectory"
