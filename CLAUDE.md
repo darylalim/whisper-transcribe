@@ -48,6 +48,11 @@ Single Docling MLX Whisper turbo variant via `asr_model_specs.WHISPER_TURBO_MLX`
 - `ARTIFACTS_PATH` — pre-computed at module level
 - `time.perf_counter()` — fractional-second timing
 
+### Input Modes
+
+- **Record** / **Upload** — both visible with audio preview (`st.audio`) and a "Transcribe" button each, separated by a divider
+- Both paths use `_handle_transcription` which shows inline metrics caption, copyable transcript (`st.text_area` disabled), and two download buttons (plain text + JSON)
+
 ### Audio Formats
 
 wav, mp3, m4a, ogg, flac, webm, aac

@@ -64,15 +64,7 @@ def _transcribe(path: Path) -> tuple[str, float]:
     return result.document.export_to_markdown(), elapsed
 
 
-# UI
-st.title("Automatic Speech Recognition Pipeline")
-st.write("Transcribe audio files to Markdown using MLX Whisper on Apple Silicon.")
-
-with st.form("transcribe_form"):
-    uploaded_file = st.file_uploader("Upload audio file", type=AUDIO_FORMATS)
-    submitted = st.form_submit_button("Transcribe", type="primary")
-
-if submitted and uploaded_file:
+def _handle_transcription(uploaded_file: st.runtime.uploaded_file_manager.UploadedFile) -> None:
     suffix = Path(uploaded_file.name).suffix
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(uploaded_file.read())
@@ -85,20 +77,24 @@ if submitted and uploaded_file:
 
         with st.spinner("Transcribing..."):
             transcript, eval_duration = _transcribe(tmp_path)
-        st.success("Done.")
-
-        st.subheader("Transcript")
-        st.markdown(transcript)
 
         num_words = len(transcript.split())
+        file_stem = Path(uploaded_file.name).stem + "_transcript"
 
-        st.subheader("Metrics")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Audio Duration", f"{audio_duration:.2f} s" if audio_duration else "N/A")
-        c2.metric("Words", f"{num_words:,}")
-        c3.metric("Eval Duration", f"{eval_duration:.2f} s")
+        parts: list[str] = []
+        if audio_duration is not None:
+            parts.append(f"{audio_duration:.1f}s audio")
+        parts.append(f"{num_words:,} words")
+        parts.append(f"transcribed in {eval_duration:.2f}s")
+        st.caption(" · ".join(parts))
 
-        st.download_button(
+        st.text_area(
+            "Transcript", transcript, height=300, disabled=True, label_visibility="collapsed"
+        )
+
+        c1, c2 = st.columns(2)
+        c1.download_button("Download transcript", transcript, file_stem + ".txt", "text/plain")
+        c2.download_button(
             "Download JSON",
             json.dumps(
                 {
@@ -109,7 +105,7 @@ if submitted and uploaded_file:
                 },
                 indent=2,
             ),
-            Path(uploaded_file.name).stem + "_transcript.json",
+            file_stem + ".json",
             "application/json",
         )
     except RuntimeError as e:
@@ -119,5 +115,29 @@ if submitted and uploaded_file:
         st.exception(e)
     finally:
         tmp_path.unlink(missing_ok=True)
-elif submitted:
-    st.warning("Please upload an audio file.")
+
+
+# UI
+st.title("Audio Transcription")
+st.write("Record or upload audio to transcribe with Whisper.")
+
+recorded_audio = st.audio_input("Record audio")
+if recorded_audio:
+    st.audio(recorded_audio)
+record_submitted = st.button(
+    "Transcribe", type="primary", key="record_btn", disabled=not recorded_audio
+)
+
+st.divider()
+
+uploaded_file = st.file_uploader("Upload audio file", type=AUDIO_FORMATS)
+if uploaded_file:
+    st.audio(uploaded_file)
+upload_submitted = st.button(
+    "Transcribe", type="primary", key="upload_btn", disabled=not uploaded_file
+)
+
+if record_submitted and recorded_audio:
+    _handle_transcription(recorded_audio)
+elif upload_submitted and uploaded_file:
+    _handle_transcription(uploaded_file)
