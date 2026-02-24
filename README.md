@@ -30,7 +30,7 @@ uv sync
 uv run streamlit run streamlit_app.py
 ```
 
-Upload an audio file (wav, mp3, m4a, ogg, flac, webm, aac) and click Transcribe.
+Upload or record an audio file (wav, mp3, m4a, ogg, flac, webm, aac) and click Transcribe.
 
 ## JSON Export
 

@@ -50,8 +50,8 @@ Single Docling MLX Whisper turbo variant via `asr_model_specs.WHISPER_TURBO_MLX`
 
 ### Input Modes
 
-- **Record** / **Upload** — both visible with audio preview (`st.audio`) and a "Transcribe" button each, separated by a divider
-- Both paths use `_handle_transcription` which shows inline metrics caption, copyable transcript (`st.text_area` disabled), and two download buttons (plain text + JSON)
+- **Record** / **Upload** tabs (`st.tabs`) — each with audio preview (`st.audio`) and a "Transcribe" button
+- Both paths use `_handle_transcription` which shows inline metrics caption, copyable transcript (`st.code`), and two download buttons (plain text + JSON)
 
 ### Audio Formats
 
@@ -77,6 +77,7 @@ Fields in the downloadable JSON via `st.download_button`:
 
 - `_get_audio_duration` — real ffprobe calls and mocked subprocess
 - `_transcribe` — mocked `_get_converter` and `ConversionStatus`
+- `_handle_transcription` — mocked `st`, `_transcribe`, and `_get_audio_duration`; covers caption formatting, error handling, and temp directory cleanup
 
 ## Resources
 
