@@ -1,7 +1,7 @@
 [project]
 name = "asr-pipeline"
 version = "0.1.0"
-description = "Transcribe audio files to Markdown using MLX Whisper models on Apple Silicon."
+description = "Transcribe audio files to Markdown using the MLX Whisper turbo model on Apple Silicon."
 requires-python = ">=3.12"
 dependencies = [
     "docling[asr]",
