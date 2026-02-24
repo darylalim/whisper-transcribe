@@ -6,9 +6,8 @@ import pytest
 
 from streamlit_app import (
     ARTIFACTS_PATH,
+    ASR_MODEL,
     AUDIO_FORMATS,
-    MODEL_NAMES,
-    MODEL_OPTIONS,
     _get_audio_duration,
     _transcribe,
 )
@@ -31,20 +30,10 @@ def mock_converter():
 # --- Constants ---
 
 
-def test_model_options_has_six_models():
-    assert len(MODEL_OPTIONS) == 6
+def test_asr_model_is_turbo():
+    from docling.datamodel import asr_model_specs
 
-
-def test_model_names_matches_model_options_keys():
-    assert MODEL_NAMES == tuple(MODEL_OPTIONS)
-
-
-def test_model_names_is_tuple():
-    assert isinstance(MODEL_NAMES, tuple)
-
-
-def test_turbo_in_model_names():
-    assert "turbo" in MODEL_NAMES
+    assert ASR_MODEL is asr_model_specs.WHISPER_TURBO_MLX
 
 
 def test_audio_formats():
@@ -110,7 +99,7 @@ def test_transcribe_success(mock_converter):
     mock_result.document.export_to_markdown.return_value = "Hello world"
     mock_converter.convert.return_value = mock_result
 
-    transcript, elapsed = _transcribe(SAMPLE_AUDIO, "tiny")
+    transcript, elapsed = _transcribe(SAMPLE_AUDIO)
 
     assert transcript == "Hello world"
     assert isinstance(elapsed, float)
@@ -123,4 +112,4 @@ def test_transcribe_failure_raises_runtime_error(mock_converter):
     mock_converter.convert.return_value = mock_result
 
     with pytest.raises(RuntimeError, match="Conversion failed"):
-        _transcribe(SAMPLE_AUDIO, "tiny")
+        _transcribe(SAMPLE_AUDIO)
