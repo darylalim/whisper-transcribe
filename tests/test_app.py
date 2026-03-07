@@ -131,6 +131,24 @@ def test_transcribe_success(mock_mlx):
 
 
 @patch("streamlit_app.mlx_whisper")
+def test_transcribe_calls_mlx_with_correct_params(mock_mlx):
+    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
+
+    _transcribe(SAMPLE_AUDIO)
+
+    mock_mlx.transcribe.assert_called_once_with(
+        str(SAMPLE_AUDIO),
+        path_or_hf_repo="mlx-community/whisper-turbo",
+        language="en",
+        task="transcribe",
+        word_timestamps=True,
+        no_speech_threshold=0.6,
+        logprob_threshold=-1.0,
+        compression_ratio_threshold=2.4,
+    )
+
+
+@patch("streamlit_app.mlx_whisper")
 def test_transcribe_no_text_raises(mock_mlx):
     mock_mlx.transcribe.return_value = {"text": "   ", "segments": [], "language": "en"}
 
@@ -204,7 +222,7 @@ def test_handle_transcription_runtime_error(
 ):
     _handle_transcription(mock_uploaded_file)
 
-    mock_st.error.assert_called_once()
+    mock_st.error.assert_called_once_with("Transcription failed: Transcription produced no text")
     assert "transcription" not in mock_st.session_state
 
 
@@ -271,6 +289,41 @@ def test_display_transcription_without_duration(mock_st):
     mock_st.caption.assert_called_once_with("2 words · transcribed in 1.23s")
 
 
+def test_display_transcription_txt_download(mock_st):
+    mock_st.session_state["transcription"] = {
+        "result": MOCK_WHISPER_RESULT,
+        "eval_duration": 1.23,
+        "audio_duration": 10.5,
+        "file_stem": "interview_transcript",
+    }
+
+    _display_transcription()
+
+    col1, col2 = mock_st.columns.return_value
+    col1.download_button.assert_called_once()
+    args = col1.download_button.call_args[0]
+    assert args[1] == "Hello world"
+    assert args[2] == "interview_transcript.txt"
+
+
+def test_display_transcription_empty_segments(mock_st):
+    empty_result = {
+        "text": "Hello world",
+        "segments": [],
+        "language": "en",
+    }
+    mock_st.session_state["transcription"] = {
+        "result": empty_result,
+        "eval_duration": 1.23,
+        "audio_duration": 10.5,
+        "file_stem": "interview_transcript",
+    }
+
+    _display_transcription()
+
+    mock_st.info.assert_called_once_with("No segment detail available.")
+
+
 def test_display_transcription_json_includes_segments(mock_st):
     mock_st.session_state["transcription"] = {
         "result": MOCK_WHISPER_RESULT,
@@ -327,6 +380,39 @@ def test_show_detailed_analysis_no_segments(mock_st):
 
     mock_st.info.assert_called_once_with("No segment detail available.")
     mock_st.dataframe.assert_not_called()
+
+
+def test_show_detailed_analysis_timestamps_formatted(mock_st):
+    segments = [
+        {
+            **MOCK_WHISPER_RESULT["segments"][0],
+            "start": 65.3,
+            "end": 128.7,
+        }
+    ]
+
+    _show_detailed_analysis(segments)
+
+    df = mock_st.dataframe.call_args_list[0][0][0]
+    assert df.iloc[0]["Start"] == "01:05.3"
+    assert df.iloc[0]["End"] == "02:08.7"
+
+
+def test_show_detailed_analysis_row_selected_no_words(mock_st):
+    segments = [
+        {
+            **MOCK_WHISPER_RESULT["segments"][0],
+            "words": [],
+        }
+    ]
+    mock_event = MagicMock()
+    mock_event.selection.rows = [0]
+    mock_st.dataframe.return_value = mock_event
+
+    _show_detailed_analysis(segments)
+
+    # Only one dataframe call (segment table), no word table
+    assert mock_st.dataframe.call_count == 1
 
 
 def test_show_detailed_analysis_with_row_selected(mock_st):
