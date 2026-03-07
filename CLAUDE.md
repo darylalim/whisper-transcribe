@@ -25,8 +25,7 @@ uv run streamlit run streamlit_app.py
 
 ## Dependencies
 
-- `docling[asr]` — ASR pipeline; provides `mlx-whisper` as a transitive dependency
-- `mlx-whisper` (via docling[asr]) — direct MLX Whisper API for segment-level data
+- `docling[asr]` — provides `mlx-whisper` as a transitive dependency
 - `streamlit` — web UI
 - `ffmpeg` — audio processing (system dependency)
 - `ruff` — linting and formatting (dev)
@@ -41,7 +40,7 @@ uv run streamlit run streamlit_app.py
 
 ### Model
 
-Direct `mlx_whisper.transcribe()` call with `ASR_MODEL_REPO = "mlx-community/whisper-turbo"`, accelerated natively on Apple Silicon via MLX. Called directly (not via Docling) to access raw segment/word-level metrics.
+Direct `mlx_whisper.transcribe()` call with `ASR_MODEL_REPO = "mlx-community/whisper-turbo"`. Called directly (not via Docling's pipeline) to access raw segment and word-level metrics. MLX accelerates natively on Apple Silicon.
 
 ### Performance
 
@@ -50,8 +49,9 @@ Direct `mlx_whisper.transcribe()` call with `ASR_MODEL_REPO = "mlx-community/whi
 
 ### Input Modes
 
-- **Record** / **Upload** tabs (`st.tabs`) — each with audio preview (`st.audio`) and a "Transcribe" button
-- Both paths use `_handle_transcription` which stores result in `st.session_state`, and `_display_transcription` renders inner tabs (Transcript / Detailed Analysis), metrics caption, download buttons
+- **Upload** / **Record** tabs (`st.tabs`) — each with audio preview (`st.audio`) and a "Transcribe" button
+- `_handle_transcription` transcribes and stores result in `st.session_state`
+- `_display_transcription` renders output: metrics caption, inner tabs (Transcript / Detailed Analysis), download buttons
 
 ### Audio Formats
 
@@ -62,7 +62,7 @@ wav, mp3, m4a, ogg, flac, webm, aac
 - `_show_detailed_analysis` renders segment `st.dataframe` with `on_select="rerun"` and `selection_mode="single-row"`
 - Segment columns: #, Start, End, Text, Avg Log Prob, No Speech Prob, Compression Ratio, Temperature
 - Word detail on row selection: Word, Start, End, Probability
-- `_format_timestamp` for MM:SS.s display
+- `_format_timestamp` formats seconds as MM:SS.s
 
 ### Error Handling
 
@@ -79,15 +79,17 @@ Fields in the downloadable JSON via `st.download_button`:
 - `transcript` (string) — generated text
 - `num_words` (int) — word count
 - `eval_duration` (float) — transcription time in seconds, rounded to 2 decimal places
-- `segments` (array) — per-segment data with fields: index, start, end, text, temperature, avg_logprob, compression_ratio, no_speech_prob, and nested words (word, start, end, probability)
+- `segments` (array) — per-segment detail:
+  - `index`, `start`, `end`, `text`, `temperature`, `avg_logprob`, `compression_ratio`, `no_speech_prob`
+  - `words` (array) — per-word detail: `word`, `start`, `end`, `probability`
 
 ### Testing
 
 - `_get_audio_duration` — real ffprobe calls and mocked subprocess
-- `_transcribe` — mocked `mlx_whisper`
-- `_handle_transcription` — session state storage, error handling, and temp directory cleanup
-- `_display_transcription` — caption rendering, tab creation, JSON export with segments
-- `_show_detailed_analysis` — dataframe content and row selection
+- `_transcribe` — mocked `mlx_whisper`, parameter verification
+- `_handle_transcription` — session state storage, error handling, temp directory cleanup
+- `_display_transcription` — caption, tabs, download buttons, JSON with segments, empty segments fallback
+- `_show_detailed_analysis` — dataframe columns/content, timestamp formatting, row selection, empty words edge case
 
 ## Resources
 
