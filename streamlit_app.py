@@ -110,7 +110,7 @@ def _show_detailed_analysis(segments: list[dict]) -> None:
         df,
         on_select="rerun",
         selection_mode="single-row",
-        use_container_width=True,
+        width="stretch",
     )
 
     if event.selection.rows:
@@ -126,7 +126,7 @@ def _show_detailed_analysis(segments: list[dict]) -> None:
                 }
                 for w in words
             ]
-            st.dataframe(pd.DataFrame(word_data), use_container_width=True)
+            st.dataframe(pd.DataFrame(word_data), width="stretch")
 
 
 def _display_transcription() -> None:
