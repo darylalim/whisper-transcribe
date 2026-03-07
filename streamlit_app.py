@@ -9,7 +9,7 @@ import pandas as pd
 import streamlit as st
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-ASR_MODEL_REPO = "mlx-community/whisper-turbo"
+ASR_MODEL_REPO = "mlx-community/whisper-large-v3-turbo"
 AUDIO_FORMATS = ("wav", "mp3", "m4a", "ogg", "flac", "webm", "aac")
 
 

@@ -1,10 +1,10 @@
 [project]
 name = "asr-pipeline"
-version = "0.2.0"
-description = "Transcribe audio files using the MLX Whisper turbo model on Apple Silicon."
+version = "0.3.0"
+description = "Transcribe audio files using the MLX Whisper large-v3-turbo model on Apple Silicon."
 requires-python = ">=3.12"
 dependencies = [
-    "docling[asr]",
+    "mlx-whisper",
     "streamlit",
 ]
 

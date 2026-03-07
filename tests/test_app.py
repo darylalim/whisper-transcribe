@@ -46,7 +46,7 @@ MOCK_WHISPER_RESULT = {
 
 
 def test_asr_model_repo():
-    assert ASR_MODEL_REPO == "mlx-community/whisper-turbo"
+    assert ASR_MODEL_REPO == "mlx-community/whisper-large-v3-turbo"
 
 
 def test_audio_formats():
@@ -138,7 +138,7 @@ def test_transcribe_calls_mlx_with_correct_params(mock_mlx):
 
     mock_mlx.transcribe.assert_called_once_with(
         str(SAMPLE_AUDIO),
-        path_or_hf_repo="mlx-community/whisper-turbo",
+        path_or_hf_repo="mlx-community/whisper-large-v3-turbo",
         language="en",
         task="transcribe",
         word_timestamps=True,
