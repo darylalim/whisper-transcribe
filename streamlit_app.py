@@ -35,6 +35,12 @@ def _get_audio_duration(path: Path) -> float | None:
         return None
 
 
+def _format_timestamp(seconds: float) -> str:
+    minutes = int(seconds // 60)
+    secs = seconds % 60
+    return f"{minutes:02d}:{secs:04.1f}"
+
+
 def _transcribe(path: Path) -> tuple[dict, float]:
     start = time.perf_counter()
     result = mlx_whisper.transcribe(

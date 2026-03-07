@@ -8,6 +8,7 @@ import pytest
 from streamlit_app import (
     ASR_MODEL_REPO,
     AUDIO_FORMATS,
+    _format_timestamp,
     _get_audio_duration,
     _handle_transcription,
     _transcribe,
@@ -50,6 +51,21 @@ def test_audio_formats():
     assert "wav" in AUDIO_FORMATS
     assert "mp3" in AUDIO_FORMATS
     assert "m4a" in AUDIO_FORMATS
+
+
+# --- _format_timestamp ---
+
+
+def test_format_timestamp_seconds():
+    assert _format_timestamp(3.2) == "00:03.2"
+
+
+def test_format_timestamp_minutes():
+    assert _format_timestamp(65.3) == "01:05.3"
+
+
+def test_format_timestamp_zero():
+    assert _format_timestamp(0.0) == "00:00.0"
 
 
 # --- _get_audio_duration ---
