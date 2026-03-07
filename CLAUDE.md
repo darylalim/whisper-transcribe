@@ -41,7 +41,7 @@ uv run streamlit run streamlit_app.py
 
 ### Model
 
-Direct `mlx_whisper.transcribe()` call with `ASR_MODEL_REPO = "mlx-community/whisper-turbo"`, accelerated with `AcceleratorDevice.MPS`. Called directly (not via Docling) to access raw segment/word-level metrics.
+Direct `mlx_whisper.transcribe()` call with `ASR_MODEL_REPO = "mlx-community/whisper-turbo"`, accelerated natively on Apple Silicon via MLX. Called directly (not via Docling) to access raw segment/word-level metrics.
 
 ### Performance
 
