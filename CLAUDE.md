@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Streamlit web app for automatic speech recognition using the MLX Whisper turbo model on Apple Silicon.
+Streamlit web app for automatic speech recognition using the MLX Whisper large-v3-turbo model on Apple Silicon.
 
 ## Setup
 
@@ -25,7 +25,7 @@ uv run streamlit run streamlit_app.py
 
 ## Dependencies
 
-- `docling[asr]` — provides `mlx-whisper` as a transitive dependency
+- `mlx-whisper` — speech recognition on Apple Silicon
 - `streamlit` — web UI
 - `ffmpeg` — audio processing (system dependency)
 - `ruff` — linting and formatting (dev)
@@ -40,7 +40,7 @@ uv run streamlit run streamlit_app.py
 
 ### Model
 
-Direct `mlx_whisper.transcribe()` call with `ASR_MODEL_REPO = "mlx-community/whisper-turbo"`. Called directly (not via Docling's pipeline) to access raw segment and word-level metrics. MLX accelerates natively on Apple Silicon.
+Direct `mlx_whisper.transcribe()` call with `ASR_MODEL_REPO = "mlx-community/whisper-large-v3-turbo"`. MLX accelerates natively on Apple Silicon.
 
 ### Performance
 
@@ -93,6 +93,4 @@ Fields in the downloadable JSON via `st.download_button`:
 
 ## Resources
 
-- [ASR Pipeline with Whisper](https://docling-project.github.io/docling/examples/minimal_asr_pipeline/)
-- [ASR Pipeline performance comparison](https://docling-project.github.io/docling/examples/asr_pipeline_performance_comparison/)
-- [MLX Whisper example](https://docling-project.github.io/docling/examples/mlx_whisper_example/)
+- [mlx-whisper](https://pypi.org/project/mlx-whisper/)
