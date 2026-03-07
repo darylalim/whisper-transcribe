@@ -1,3 +1,4 @@
+import json
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -268,6 +269,35 @@ def test_display_transcription_without_duration(mock_st):
     _display_transcription()
 
     mock_st.caption.assert_called_once_with("2 words · transcribed in 1.23s")
+
+
+def test_display_transcription_json_includes_segments(mock_st):
+    mock_st.session_state["transcription"] = {
+        "result": MOCK_WHISPER_RESULT,
+        "eval_duration": 1.23,
+        "audio_duration": 10.5,
+        "file_stem": "interview_transcript",
+    }
+
+    _display_transcription()
+
+    col1, col2 = mock_st.columns.return_value
+    payload = json.loads(col2.download_button.call_args[0][1])
+    assert payload["audio_duration"] == 10.5
+    assert payload["transcript"] == "Hello world"
+    assert payload["num_words"] == 2
+    assert payload["eval_duration"] == 1.23
+    assert "segments" in payload
+    assert len(payload["segments"]) == 1
+    seg = payload["segments"][0]
+    assert seg["index"] == 0
+    assert seg["avg_logprob"] == -0.25
+    assert seg["no_speech_prob"] == 0.01
+    assert seg["compression_ratio"] == 1.2
+    assert seg["temperature"] == 0.0
+    assert len(seg["words"]) == 2
+    assert seg["words"][0]["word"] == "Hello"
+    assert seg["words"][0]["probability"] == 0.98
 
 
 # --- _show_detailed_analysis ---

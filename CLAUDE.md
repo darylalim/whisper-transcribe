@@ -25,7 +25,8 @@ uv run streamlit run streamlit_app.py
 
 ## Dependencies
 
-- `docling[asr]` — ASR pipeline and MLX Whisper turbo model
+- `docling[asr]` — ASR pipeline; provides `mlx-whisper` as a transitive dependency
+- `mlx-whisper` (via docling[asr]) — direct MLX Whisper API for segment-level data
 - `streamlit` — web UI
 - `ffmpeg` — audio processing (system dependency)
 - `ruff` — linting and formatting (dev)
@@ -40,22 +41,28 @@ uv run streamlit run streamlit_app.py
 
 ### Model
 
-Single Docling MLX Whisper turbo variant via `asr_model_specs.WHISPER_TURBO_MLX`, accelerated with `AcceleratorDevice.MPS`.
+Direct `mlx_whisper.transcribe()` call with `ASR_MODEL_REPO = "mlx-community/whisper-turbo"`, accelerated with `AcceleratorDevice.MPS`. Called directly (not via Docling) to access raw segment/word-level metrics.
 
 ### Performance
 
-- `@st.cache_resource` on `_get_converter()` — caches `DocumentConverter`
-- `ARTIFACTS_PATH` — pre-computed at module level
+- `mlx_whisper.ModelHolder` — caches loaded model in memory across calls
 - `time.perf_counter()` — fractional-second timing
 
 ### Input Modes
 
 - **Record** / **Upload** tabs (`st.tabs`) — each with audio preview (`st.audio`) and a "Transcribe" button
-- Both paths use `_handle_transcription` which shows inline metrics caption, copyable transcript (`st.code`), and two download buttons (plain text + JSON)
+- Both paths use `_handle_transcription` which stores result in `st.session_state`, and `_display_transcription` renders inner tabs (Transcript / Detailed Analysis), metrics caption, download buttons
 
 ### Audio Formats
 
 wav, mp3, m4a, ogg, flac, webm, aac
+
+### Detailed Analysis
+
+- `_show_detailed_analysis` renders segment `st.dataframe` with `on_select="rerun"` and `selection_mode="single-row"`
+- Segment columns: #, Start, End, Text, Avg Log Prob, No Speech Prob, Compression Ratio, Temperature
+- Word detail on row selection: Word, Start, End, Probability
+- `_format_timestamp` for MM:SS.s display
 
 ### Error Handling
 
@@ -72,12 +79,15 @@ Fields in the downloadable JSON via `st.download_button`:
 - `transcript` (string) — generated text
 - `num_words` (int) — word count
 - `eval_duration` (float) — transcription time in seconds, rounded to 2 decimal places
+- `segments` (array) — per-segment data with fields: index, start, end, text, temperature, avg_logprob, compression_ratio, no_speech_prob, and nested words (word, start, end, probability)
 
 ### Testing
 
 - `_get_audio_duration` — real ffprobe calls and mocked subprocess
-- `_transcribe` — mocked `_get_converter` and `ConversionStatus`
-- `_handle_transcription` — mocked `st`, `_transcribe`, and `_get_audio_duration`; covers caption formatting, error handling, and temp directory cleanup
+- `_transcribe` — mocked `mlx_whisper`
+- `_handle_transcription` — session state storage, error handling, and temp directory cleanup
+- `_display_transcription` — caption rendering, tab creation, JSON export with segments
+- `_show_detailed_analysis` — dataframe content and row selection
 
 ## Resources
 
