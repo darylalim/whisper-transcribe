@@ -11,6 +11,7 @@ from streamlit_app import (
     _format_timestamp,
     _get_audio_duration,
     _handle_transcription,
+    _show_detailed_analysis,
     _transcribe,
 )
 
@@ -267,3 +268,49 @@ def test_display_transcription_without_duration(mock_st):
     _display_transcription()
 
     mock_st.caption.assert_called_once_with("2 words · transcribed in 1.23s")
+
+
+# --- _show_detailed_analysis ---
+
+
+def test_show_detailed_analysis_renders_segment_dataframe(mock_st):
+    _show_detailed_analysis(MOCK_WHISPER_RESULT["segments"])
+
+    assert mock_st.dataframe.called
+    call_args = mock_st.dataframe.call_args_list[0]
+    df = call_args[0][0]
+    assert "#" in df.columns
+    assert "Start" in df.columns
+    assert "End" in df.columns
+    assert "Text" in df.columns
+    assert "Avg Log Prob" in df.columns
+    assert "No Speech Prob" in df.columns
+    assert "Compression Ratio" in df.columns
+    assert "Temperature" in df.columns
+    assert len(df) == 1
+    assert df.iloc[0]["#"] == 0
+    assert df.iloc[0]["Avg Log Prob"] == -0.25
+
+
+def test_show_detailed_analysis_no_segments(mock_st):
+    _show_detailed_analysis([])
+
+    mock_st.info.assert_called_once_with("No segment detail available.")
+    mock_st.dataframe.assert_not_called()
+
+
+def test_show_detailed_analysis_with_row_selected(mock_st):
+    mock_event = MagicMock()
+    mock_event.selection.rows = [0]
+    mock_st.dataframe.return_value = mock_event
+
+    _show_detailed_analysis(MOCK_WHISPER_RESULT["segments"])
+
+    # Two dataframe calls: segment table + word table
+    assert mock_st.dataframe.call_count == 2
+    word_df = mock_st.dataframe.call_args_list[1][0][0]
+    assert "Word" in word_df.columns
+    assert "Probability" in word_df.columns
+    assert len(word_df) == 2
+    assert word_df.iloc[0]["Word"] == "Hello"
+    assert word_df.iloc[0]["Probability"] == 0.98

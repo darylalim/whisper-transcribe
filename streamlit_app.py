@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 import mlx_whisper
-import pandas as pd  # noqa: F401
+import pandas as pd
 import streamlit as st
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
@@ -88,7 +88,45 @@ def _handle_transcription(uploaded_file: UploadedFile) -> None:
 
 
 def _show_detailed_analysis(segments: list[dict]) -> None:
-    st.info("Detailed analysis coming soon.")
+    if not segments:
+        st.info("No segment detail available.")
+        return
+
+    segment_data = [
+        {
+            "#": i,
+            "Start": _format_timestamp(seg["start"]),
+            "End": _format_timestamp(seg["end"]),
+            "Text": seg["text"].strip(),
+            "Avg Log Prob": round(seg["avg_logprob"], 4),
+            "No Speech Prob": round(seg["no_speech_prob"], 4),
+            "Compression Ratio": round(seg["compression_ratio"], 2),
+            "Temperature": seg["temperature"],
+        }
+        for i, seg in enumerate(segments)
+    ]
+    df = pd.DataFrame(segment_data)
+    event = st.dataframe(
+        df,
+        on_select="rerun",
+        selection_mode="single-row",
+        use_container_width=True,
+    )
+
+    if event.selection.rows:
+        sel_idx = event.selection.rows[0]
+        words = segments[sel_idx].get("words", [])
+        if words:
+            word_data = [
+                {
+                    "Word": w["word"].strip(),
+                    "Start": _format_timestamp(w["start"]),
+                    "End": _format_timestamp(w["end"]),
+                    "Probability": round(w["probability"], 4),
+                }
+                for w in words
+            ]
+            st.dataframe(pd.DataFrame(word_data), use_container_width=True)
 
 
 def _display_transcription() -> None:
