@@ -6,8 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from streamlit_app import (
-    ARTIFACTS_PATH,
-    ASR_MODEL,
+    ASR_MODEL_REPO,
     AUDIO_FORMATS,
     _get_audio_duration,
     _handle_transcription,
@@ -16,36 +15,41 @@ from streamlit_app import (
 
 SAMPLE_AUDIO = Path(__file__).parent / "data" / "audio" / "sample_10s.mp3"
 
-
-@pytest.fixture
-def mock_converter():
-    with (
-        patch("streamlit_app._get_converter") as mock_get_converter,
-        patch("streamlit_app.ConversionStatus") as mock_status,
-    ):
-        mock_status.SUCCESS = "success"
-        converter = MagicMock()
-        mock_get_converter.return_value = converter
-        yield converter
+MOCK_WHISPER_RESULT = {
+    "text": "Hello world",
+    "segments": [
+        {
+            "id": 0,
+            "seek": 0,
+            "start": 0.0,
+            "end": 2.5,
+            "text": " Hello world",
+            "tokens": [50364, 2425, 1002, 50414],
+            "temperature": 0.0,
+            "avg_logprob": -0.25,
+            "compression_ratio": 1.2,
+            "no_speech_prob": 0.01,
+            "words": [
+                {"word": " Hello", "start": 0.0, "end": 1.0, "probability": 0.98},
+                {"word": " world", "start": 1.0, "end": 2.5, "probability": 0.95},
+            ],
+        }
+    ],
+    "language": "en",
+}
 
 
 # --- Constants ---
 
 
-def test_asr_model_is_turbo():
-    from docling.datamodel import asr_model_specs
-
-    assert ASR_MODEL is asr_model_specs.WHISPER_TURBO_MLX
+def test_asr_model_repo():
+    assert ASR_MODEL_REPO == "mlx-community/whisper-turbo"
 
 
 def test_audio_formats():
     assert "wav" in AUDIO_FORMATS
     assert "mp3" in AUDIO_FORMATS
     assert "m4a" in AUDIO_FORMATS
-
-
-def test_artifacts_path_is_absolute():
-    assert Path(ARTIFACTS_PATH).is_absolute()
 
 
 # --- _get_audio_duration ---
@@ -95,25 +99,24 @@ def test_get_audio_duration_parses_stdout(mock_run):
 # --- _transcribe ---
 
 
-def test_transcribe_success(mock_converter):
-    mock_result = MagicMock()
-    mock_result.status = "success"
-    mock_result.document.export_to_markdown.return_value = "Hello world"
-    mock_converter.convert.return_value = mock_result
+@patch("streamlit_app.mlx_whisper")
+def test_transcribe_success(mock_mlx):
+    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
 
-    transcript, elapsed = _transcribe(SAMPLE_AUDIO)
+    result, elapsed = _transcribe(SAMPLE_AUDIO)
 
-    assert transcript == "Hello world"
+    assert result["text"] == "Hello world"
+    assert len(result["segments"]) == 1
+    assert result["segments"][0]["avg_logprob"] == -0.25
     assert isinstance(elapsed, float)
     assert elapsed >= 0
 
 
-def test_transcribe_failure_raises_runtime_error(mock_converter):
-    mock_result = MagicMock()
-    mock_result.status = "failure"
-    mock_converter.convert.return_value = mock_result
+@patch("streamlit_app.mlx_whisper")
+def test_transcribe_no_text_raises(mock_mlx):
+    mock_mlx.transcribe.return_value = {"text": "   ", "segments": [], "language": "en"}
 
-    with pytest.raises(RuntimeError, match="Conversion failed"):
+    with pytest.raises(RuntimeError, match="no text"):
         _transcribe(SAMPLE_AUDIO)
 
 
@@ -137,7 +140,7 @@ def mock_st():
         yield m
 
 
-@patch("streamlit_app._transcribe", return_value=("Hello world", 1.23))
+@patch("streamlit_app._transcribe", return_value=(MOCK_WHISPER_RESULT, 1.23))
 @patch("streamlit_app._get_audio_duration", return_value=10.5)
 def test_handle_transcription_with_duration(
     mock_duration, mock_transcribe, mock_st, mock_uploaded_file
@@ -161,7 +164,7 @@ def test_handle_transcription_with_duration(
     }
 
 
-@patch("streamlit_app._transcribe", return_value=("Hello world", 1.23))
+@patch("streamlit_app._transcribe", return_value=(MOCK_WHISPER_RESULT, 1.23))
 @patch("streamlit_app._get_audio_duration", return_value=None)
 def test_handle_transcription_without_duration(
     mock_duration, mock_transcribe, mock_st, mock_uploaded_file
@@ -195,7 +198,7 @@ def test_handle_transcription_unexpected_error(
     mock_st.exception.assert_called_once()
 
 
-@patch("streamlit_app._transcribe", return_value=("Hello world", 1.23))
+@patch("streamlit_app._transcribe", return_value=(MOCK_WHISPER_RESULT, 1.23))
 @patch("streamlit_app._get_audio_duration", return_value=10.5)
 def test_handle_transcription_temp_dir_cleanup(
     mock_duration, mock_transcribe, mock_st, mock_uploaded_file

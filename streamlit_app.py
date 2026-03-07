@@ -4,32 +4,12 @@ import tempfile
 import time
 from pathlib import Path
 
+import mlx_whisper
 import streamlit as st
-from docling.datamodel import asr_model_specs
-from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
-from docling.datamodel.base_models import ConversionStatus, InputFormat
-from docling.datamodel.pipeline_options import AsrPipelineOptions
-from docling.document_converter import AudioFormatOption, DocumentConverter
-from docling.pipeline.asr_pipeline import AsrPipeline
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-ASR_MODEL = asr_model_specs.WHISPER_TURBO_MLX
+ASR_MODEL_REPO = "mlx-community/whisper-turbo"
 AUDIO_FORMATS = ("wav", "mp3", "m4a", "ogg", "flac", "webm", "aac")
-ARTIFACTS_PATH = str(Path.home() / ".cache" / "docling" / "models")
-
-
-@st.cache_resource
-def _get_converter() -> DocumentConverter:
-    options = AsrPipelineOptions(
-        artifacts_path=ARTIFACTS_PATH,
-        accelerator_options=AcceleratorOptions(device=AcceleratorDevice.MPS),
-    )
-    options.asr_options = ASR_MODEL
-    return DocumentConverter(
-        format_options={
-            InputFormat.AUDIO: AudioFormatOption(pipeline_cls=AsrPipeline, pipeline_options=options)
-        }
-    )
 
 
 def _get_audio_duration(path: Path) -> float | None:
@@ -55,14 +35,22 @@ def _get_audio_duration(path: Path) -> float | None:
         return None
 
 
-def _transcribe(path: Path) -> tuple[str, float]:
-    converter = _get_converter()
+def _transcribe(path: Path) -> tuple[dict, float]:
     start = time.perf_counter()
-    result = converter.convert(path)
+    result = mlx_whisper.transcribe(
+        str(path),
+        path_or_hf_repo=ASR_MODEL_REPO,
+        language="en",
+        task="transcribe",
+        word_timestamps=True,
+        no_speech_threshold=0.6,
+        logprob_threshold=-1.0,
+        compression_ratio_threshold=2.4,
+    )
     elapsed = round(time.perf_counter() - start, 2)
-    if result.status != ConversionStatus.SUCCESS:
-        raise RuntimeError(f"Conversion failed: {result.status}")
-    return result.document.export_to_markdown(), elapsed
+    if not result.get("text", "").strip():
+        raise RuntimeError("Transcription produced no text")
+    return result, elapsed
 
 
 def _handle_transcription(uploaded_file: UploadedFile) -> None:
@@ -77,7 +65,8 @@ def _handle_transcription(uploaded_file: UploadedFile) -> None:
                 st.warning("Could not determine audio duration. Transcribing anyway.")
 
             with st.spinner("Transcribing..."):
-                transcript, eval_duration = _transcribe(tmp_path)
+                result, eval_duration = _transcribe(tmp_path)
+                transcript = result["text"].strip()
 
             num_words = len(transcript.split())
             file_stem = name.stem + "_transcript"
