@@ -1,10 +1,10 @@
 # Automatic Speech Recognition (ASR) Pipeline
 
-Transcribe audio files using the MLX Whisper turbo model on Apple Silicon.
+Transcribe audio files using the MLX Whisper large-v3-turbo model on Apple Silicon.
 
 ## Features
 
-- **Whisper turbo model** — fast, high-quality transcription via MLX Whisper
+- **Whisper large-v3-turbo** — fast, high-quality transcription via [mlx-whisper](https://pypi.org/project/mlx-whisper/)
 - **Apple Silicon acceleration** — native MLX framework (M1/M2/M3/M4)
 - **Detailed analysis** — segment-level metrics and word-level timestamps with probabilities
 - **Metrics** — audio duration, word count, transcription time
