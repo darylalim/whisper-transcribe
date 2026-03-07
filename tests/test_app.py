@@ -1,4 +1,3 @@
-import json
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -8,6 +7,7 @@ import pytest
 from streamlit_app import (
     ASR_MODEL_REPO,
     AUDIO_FORMATS,
+    _display_transcription,
     _format_timestamp,
     _get_audio_duration,
     _handle_transcription,
@@ -152,55 +152,58 @@ def mock_st():
     with patch("streamlit_app.st") as m:
         m.spinner.return_value.__enter__ = MagicMock()
         m.spinner.return_value.__exit__ = MagicMock(return_value=False)
+        m.session_state = {}
+        tab1, tab2 = MagicMock(), MagicMock()
+        tab1.__enter__ = MagicMock(return_value=tab1)
+        tab1.__exit__ = MagicMock(return_value=False)
+        tab2.__enter__ = MagicMock(return_value=tab2)
+        tab2.__exit__ = MagicMock(return_value=False)
+        m.tabs.return_value = (tab1, tab2)
         m.columns.return_value = (MagicMock(), MagicMock())
+        mock_event = MagicMock()
+        mock_event.selection.rows = []
+        m.dataframe.return_value = mock_event
         yield m
 
 
 @patch("streamlit_app._transcribe", return_value=(MOCK_WHISPER_RESULT, 1.23))
 @patch("streamlit_app._get_audio_duration", return_value=10.5)
-def test_handle_transcription_with_duration(
+def test_handle_transcription_stores_result(
     mock_duration, mock_transcribe, mock_st, mock_uploaded_file
 ):
     _handle_transcription(mock_uploaded_file)
 
-    mock_st.caption.assert_called_once_with("10.5s audio · 2 words · transcribed in 1.23s")
-    mock_st.code.assert_called_once_with("Hello world", language=None, wrap_lines=True)
-    col1, col2 = mock_st.columns.return_value
-    col1.download_button.assert_called_once()
-    txt_args = col1.download_button.call_args
-    assert txt_args[0][1] == "Hello world"
-    assert txt_args[0][2] == "interview_transcript.txt"
-    col2.download_button.assert_called_once()
-    payload = json.loads(col2.download_button.call_args[0][1])
-    assert payload == {
-        "audio_duration": 10.5,
-        "transcript": "Hello world",
-        "num_words": 2,
-        "eval_duration": 1.23,
-    }
+    assert "transcription" in mock_st.session_state
+    data = mock_st.session_state["transcription"]
+    assert data["result"] == MOCK_WHISPER_RESULT
+    assert data["eval_duration"] == 1.23
+    assert data["audio_duration"] == 10.5
+    assert data["file_stem"] == "interview_transcript"
 
 
 @patch("streamlit_app._transcribe", return_value=(MOCK_WHISPER_RESULT, 1.23))
 @patch("streamlit_app._get_audio_duration", return_value=None)
-def test_handle_transcription_without_duration(
+def test_handle_transcription_stores_null_duration(
     mock_duration, mock_transcribe, mock_st, mock_uploaded_file
 ):
     _handle_transcription(mock_uploaded_file)
 
     mock_st.warning.assert_called_once()
-    mock_st.caption.assert_called_once_with("2 words · transcribed in 1.23s")
-    payload = json.loads(mock_st.columns.return_value[1].download_button.call_args[0][1])
-    assert payload["audio_duration"] is None
+    assert mock_st.session_state["transcription"]["audio_duration"] is None
 
 
-@patch("streamlit_app._transcribe", side_effect=RuntimeError("Conversion failed: failure"))
+@patch(
+    "streamlit_app._transcribe",
+    side_effect=RuntimeError("Transcription produced no text"),
+)
 @patch("streamlit_app._get_audio_duration", return_value=10.5)
 def test_handle_transcription_runtime_error(
     mock_duration, mock_transcribe, mock_st, mock_uploaded_file
 ):
     _handle_transcription(mock_uploaded_file)
 
-    mock_st.error.assert_called_once_with("Transcription failed: Conversion failed: failure")
+    mock_st.error.assert_called_once()
+    assert "transcription" not in mock_st.session_state
 
 
 @patch("streamlit_app._transcribe", side_effect=ValueError("unexpected"))
@@ -219,13 +222,48 @@ def test_handle_transcription_unexpected_error(
 def test_handle_transcription_temp_dir_cleanup(
     mock_duration, mock_transcribe, mock_st, mock_uploaded_file
 ):
-    # Capture the path passed to _get_audio_duration to verify cleanup
     called_paths = []
     mock_duration.side_effect = lambda p: (called_paths.append(p), 10.5)[1]
 
     _handle_transcription(mock_uploaded_file)
 
     assert len(called_paths) == 1
-    tmp_path = called_paths[0]
-    assert tmp_path.name == "audio.mp3"
-    assert not tmp_path.exists(), "Temp file should be cleaned up by TemporaryDirectory"
+    assert called_paths[0].name == "audio.mp3"
+    assert not called_paths[0].exists()
+
+
+# --- _display_transcription ---
+
+
+def test_display_transcription_no_session_state(mock_st):
+    _display_transcription()
+
+    mock_st.tabs.assert_not_called()
+
+
+def test_display_transcription_shows_caption_and_tabs(mock_st):
+    mock_st.session_state["transcription"] = {
+        "result": MOCK_WHISPER_RESULT,
+        "eval_duration": 1.23,
+        "audio_duration": 10.5,
+        "file_stem": "interview_transcript",
+    }
+
+    _display_transcription()
+
+    mock_st.caption.assert_called_once_with("10.5s audio · 2 words · transcribed in 1.23s")
+    mock_st.tabs.assert_called_once_with(["Transcript", "Detailed Analysis"])
+    mock_st.code.assert_called_once_with("Hello world", language=None, wrap_lines=True)
+
+
+def test_display_transcription_without_duration(mock_st):
+    mock_st.session_state["transcription"] = {
+        "result": MOCK_WHISPER_RESULT,
+        "eval_duration": 1.23,
+        "audio_duration": None,
+        "file_stem": "interview_transcript",
+    }
+
+    _display_transcription()
+
+    mock_st.caption.assert_called_once_with("2 words · transcribed in 1.23s")

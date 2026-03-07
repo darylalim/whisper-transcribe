@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 import mlx_whisper
+import pandas as pd  # noqa: F401
 import streamlit as st
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
@@ -72,46 +73,97 @@ def _handle_transcription(uploaded_file: UploadedFile) -> None:
 
             with st.spinner("Transcribing..."):
                 result, eval_duration = _transcribe(tmp_path)
-                transcript = result["text"].strip()
 
-            num_words = len(transcript.split())
-            file_stem = name.stem + "_transcript"
-
-            st.caption(
-                " · ".join(
-                    part
-                    for part in [
-                        f"{audio_duration:.1f}s audio" if audio_duration is not None else None,
-                        f"{num_words:,} words",
-                        f"transcribed in {eval_duration:.2f}s",
-                    ]
-                    if part
-                )
-            )
-
-            st.code(transcript, language=None, wrap_lines=True)
-
-            c1, c2 = st.columns(2)
-            c1.download_button("Download transcript", transcript, file_stem + ".txt", "text/plain")
-            c2.download_button(
-                "Download JSON",
-                json.dumps(
-                    {
-                        "audio_duration": audio_duration,
-                        "transcript": transcript,
-                        "num_words": num_words,
-                        "eval_duration": eval_duration,
-                    },
-                    indent=2,
-                ),
-                file_stem + ".json",
-                "application/json",
-            )
+            st.session_state["transcription"] = {
+                "result": result,
+                "eval_duration": eval_duration,
+                "audio_duration": audio_duration,
+                "file_stem": name.stem + "_transcript",
+            }
         except RuntimeError as e:
             st.error(f"Transcription failed: {e}")
         except Exception as e:
             st.error(f"Unexpected error: {e}")
             st.exception(e)
+
+
+def _show_detailed_analysis(segments: list[dict]) -> None:
+    st.info("Detailed analysis coming soon.")
+
+
+def _display_transcription() -> None:
+    if "transcription" not in st.session_state:
+        return
+
+    data = st.session_state["transcription"]
+    result = data["result"]
+    eval_duration = data["eval_duration"]
+    audio_duration = data["audio_duration"]
+    file_stem = data["file_stem"]
+
+    transcript = result["text"].strip()
+    segments = result.get("segments", [])
+    num_words = len(transcript.split())
+
+    st.caption(
+        " · ".join(
+            part
+            for part in [
+                f"{audio_duration:.1f}s audio" if audio_duration is not None else None,
+                f"{num_words:,} words",
+                f"transcribed in {eval_duration:.2f}s",
+            ]
+            if part
+        )
+    )
+
+    transcript_tab, detail_tab = st.tabs(["Transcript", "Detailed Analysis"])
+    with transcript_tab:
+        st.code(transcript, language=None, wrap_lines=True)
+    with detail_tab:
+        if segments:
+            _show_detailed_analysis(segments)
+        else:
+            st.info("No segment detail available.")
+
+    c1, c2 = st.columns(2)
+    c1.download_button("Download transcript", transcript, file_stem + ".txt", "text/plain")
+    c2.download_button(
+        "Download JSON",
+        json.dumps(
+            {
+                "audio_duration": audio_duration,
+                "transcript": transcript,
+                "num_words": num_words,
+                "eval_duration": eval_duration,
+                "segments": [
+                    {
+                        "index": i,
+                        "start": seg["start"],
+                        "end": seg["end"],
+                        "text": seg["text"].strip(),
+                        "temperature": seg["temperature"],
+                        "avg_logprob": seg["avg_logprob"],
+                        "compression_ratio": seg["compression_ratio"],
+                        "no_speech_prob": seg["no_speech_prob"],
+                        "words": [
+                            {
+                                "word": w["word"].strip(),
+                                "start": w["start"],
+                                "end": w["end"],
+                                "probability": w["probability"],
+                            }
+                            for w in seg.get("words", [])
+                        ],
+                    }
+                    for i, seg in enumerate(segments)
+                ],
+            },
+            indent=2,
+        ),
+        file_stem + ".json",
+        "application/json",
+    )
 
 
 # UI
@@ -139,3 +191,5 @@ if record_submitted and recorded_audio:
     _handle_transcription(recorded_audio)
 elif upload_submitted and uploaded_file:
     _handle_transcription(uploaded_file)
+
+_display_transcription()
