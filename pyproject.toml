@@ -1,7 +1,7 @@
 [project]
-name = "mlx-whisper-pipeline"
+name = "whisper-pipeline"
 version = "0.3.0"
-description = "Transcribe audio files using the MLX Whisper large-v3-turbo model on Apple Silicon."
+description = "Transcribe audio files using the Whisper large-v3-turbo model on Apple Silicon."
 requires-python = ">=3.12"
 dependencies = [
     "mlx-whisper",

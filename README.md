@@ -1,6 +1,6 @@
-# MLX Whisper Pipeline
+# Whisper Pipeline
 
-Transcribe audio files using the MLX Whisper large-v3-turbo model on Apple Silicon.
+Transcribe audio files using the Whisper large-v3-turbo model on Apple Silicon.
 
 ## Features
 
