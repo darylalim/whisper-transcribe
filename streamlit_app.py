@@ -205,24 +205,24 @@ def _display_transcription() -> None:
 
 
 # UI
-st.title("Audio Transcription")
-st.write("Upload or record audio to transcribe with Whisper.")
-
-upload_tab, record_tab = st.tabs(["Upload", "Record"])
-with upload_tab:
-    uploaded_file = st.file_uploader("Upload audio file", type=AUDIO_FORMATS)
-    if uploaded_file:
-        st.audio(uploaded_file)
-    upload_submitted = st.button(
-        "Transcribe", type="primary", key="upload_btn", disabled=not uploaded_file
-    )
-
+st.title("Whisper Pipeline")
+record_tab, upload_tab = st.tabs(["Record", "Upload"])
 with record_tab:
-    recorded_audio = st.audio_input("Record audio")
+    recorded_audio = st.audio_input("Record audio", label_visibility="collapsed")
     if recorded_audio:
         st.audio(recorded_audio)
     record_submitted = st.button(
         "Transcribe", type="primary", key="record_btn", disabled=not recorded_audio
+    )
+
+with upload_tab:
+    uploaded_file = st.file_uploader(
+        "Upload audio file", type=AUDIO_FORMATS, label_visibility="collapsed"
+    )
+    if uploaded_file:
+        st.audio(uploaded_file)
+    upload_submitted = st.button(
+        "Transcribe", type="primary", key="upload_btn", disabled=not uploaded_file
     )
 
 if record_submitted and recorded_audio:
