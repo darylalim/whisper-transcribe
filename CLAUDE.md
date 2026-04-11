@@ -36,16 +36,16 @@ uv run streamlit run streamlit_app.py
 
 - `streamlit_app.py` — single-file app entry point
 - `tests/test_app.py` — unit tests
-- `tests/data/audio/sample_10s.mp3` — sample audio fixture
 
 ### Model
 
-Direct `mlx_whisper.transcribe()` call with `ASR_MODEL_REPO = "mlx-community/whisper-large-v3-turbo"`. MLX accelerates natively on Apple Silicon.
+Direct `mlx_whisper.transcribe()` call with `ASR_MODEL_REPO = "mlx-community/whisper-large-v3-turbo"`. MLX accelerates natively on Apple Silicon. Results are cached via `@st.cache_data`.
 
 ### Input Modes
 
 - **Record** / **Upload** tabs (`st.tabs`) — each with audio preview (`st.audio`) and a "Transcribe" button
-- `_handle_transcription` transcribes and stores result in `st.session_state`
+- `_transcribe` writes audio bytes to a temp file, calls `mlx_whisper.transcribe()`, and caches results
+- `_handle_transcription` reads uploaded file bytes and stores result in `st.session_state`
 - `_display_transcription` renders transcript in a read-only text area with a download button
 
 ### Audio Formats
@@ -60,7 +60,7 @@ aac, flac, m4a, mov, mp3, mp4, ogg, wav, webm
 ### Testing
 
 - `_transcribe` — mocked `mlx_whisper`, parameter verification
-- `_handle_transcription` — session state storage, error handling, temp directory cleanup
+- `_handle_transcription` — session state storage, error handling, bytes/suffix passing
 - `_display_transcription` — text area rendering, download button
 
 ## Resources

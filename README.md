@@ -6,6 +6,7 @@ Transcribe audio files using the Whisper large-v3-turbo model on Apple Silicon.
 
 - **Whisper large-v3-turbo** — fast, high-quality transcription via [mlx-whisper](https://pypi.org/project/mlx-whisper/)
 - **Apple Silicon acceleration** — native MLX framework (M1/M2/M3/M4)
+- **Cached results** — repeat transcriptions return instantly via `@st.cache_data`
 - **Export** — download transcript as plain text
 
 ## Requirements
