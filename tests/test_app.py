@@ -11,8 +11,6 @@ from streamlit_app import (
     _transcribe,
 )
 
-SAMPLE_AUDIO = Path(__file__).parent / "data" / "audio" / "sample_10s.mp3"
-
 MOCK_WHISPER_RESULT = {
     "text": "Hello world",
     "segments": [
@@ -45,11 +43,7 @@ def test_asr_model_repo():
 
 
 def test_audio_formats():
-    assert "wav" in AUDIO_FORMATS
-    assert "mp3" in AUDIO_FORMATS
-    assert "m4a" in AUDIO_FORMATS
-    assert "mp4" in AUDIO_FORMATS
-    assert "mov" in AUDIO_FORMATS
+    assert AUDIO_FORMATS == ("aac", "flac", "m4a", "mov", "mp3", "mp4", "ogg", "wav", "webm")
 
 
 # --- _transcribe ---
@@ -58,37 +52,47 @@ def test_audio_formats():
 @patch("streamlit_app.mlx_whisper")
 def test_transcribe_success(mock_mlx):
     mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
-
-    result = _transcribe(SAMPLE_AUDIO)
-
+    result = _transcribe(b"fake audio", ".mp3")
     assert result["text"] == "Hello world"
     assert len(result["segments"]) == 1
-    assert result["segments"][0]["avg_logprob"] == -0.25
 
 
 @patch("streamlit_app.mlx_whisper")
 def test_transcribe_calls_mlx_with_correct_params(mock_mlx):
     mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
-
-    _transcribe(SAMPLE_AUDIO)
-
-    mock_mlx.transcribe.assert_called_once_with(
-        str(SAMPLE_AUDIO),
-        path_or_hf_repo="mlx-community/whisper-large-v3-turbo",
-        language="en",
-        task="transcribe",
-        no_speech_threshold=0.6,
-        logprob_threshold=-1.0,
-        compression_ratio_threshold=2.4,
-    )
+    _transcribe(b"fake audio params", ".mp3")
+    mock_mlx.transcribe.assert_called_once()
+    args, kwargs = mock_mlx.transcribe.call_args
+    assert args[0].endswith(".mp3")
+    assert kwargs == {
+        "path_or_hf_repo": "mlx-community/whisper-large-v3-turbo",
+        "language": "en",
+        "task": "transcribe",
+        "no_speech_threshold": 0.6,
+        "logprob_threshold": -1.0,
+        "compression_ratio_threshold": 2.4,
+    }
 
 
 @patch("streamlit_app.mlx_whisper")
 def test_transcribe_no_text_raises(mock_mlx):
     mock_mlx.transcribe.return_value = {"text": "   ", "segments": [], "language": "en"}
-
     with pytest.raises(RuntimeError, match="no text"):
-        _transcribe(SAMPLE_AUDIO)
+        _transcribe(b"fake audio empty", ".mp3")
+
+
+@patch("streamlit_app.mlx_whisper")
+def test_transcribe_cleans_up_temp_file(mock_mlx):
+    called_paths = []
+
+    def capture_path(path, **kwargs):
+        called_paths.append(path)
+        return MOCK_WHISPER_RESULT
+
+    mock_mlx.transcribe.side_effect = capture_path
+    _transcribe(b"fake audio cleanup", ".mp3")
+    assert len(called_paths) == 1
+    assert not Path(called_paths[0]).exists()
 
 
 # --- _handle_transcription ---
@@ -105,8 +109,6 @@ def mock_uploaded_file():
 @pytest.fixture
 def mock_st():
     with patch("streamlit_app.st") as m:
-        m.spinner.return_value.__enter__ = MagicMock()
-        m.spinner.return_value.__exit__ = MagicMock(return_value=False)
         m.session_state = {}
         yield m
 
@@ -141,15 +143,9 @@ def test_handle_transcription_unexpected_error(mock_transcribe, mock_st, mock_up
 
 
 @patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
-def test_handle_transcription_temp_dir_cleanup(mock_transcribe, mock_st, mock_uploaded_file):
-    called_paths = []
-    mock_transcribe.side_effect = lambda p: (called_paths.append(p), MOCK_WHISPER_RESULT)[1]
-
+def test_handle_transcription_passes_bytes_and_suffix(mock_transcribe, mock_st, mock_uploaded_file):
     _handle_transcription(mock_uploaded_file)
-
-    assert len(called_paths) == 1
-    assert called_paths[0].name == "audio.mp3"
-    assert not called_paths[0].exists()
+    mock_transcribe.assert_called_once_with(b"fake audio bytes", ".mp3")
 
 
 # --- _display_transcription ---
