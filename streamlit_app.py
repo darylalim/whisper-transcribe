@@ -16,7 +16,9 @@ def _format_language(code: str | None) -> str:
 
 
 @st.cache_data(show_spinner="Transcribing...")
-def _transcribe(audio_bytes: bytes, suffix: str, language: str | None = None) -> dict:
+def _transcribe(
+    audio_bytes: bytes, suffix: str, language: str | None = None, task: str = "transcribe"
+) -> dict:
     with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
         tmp.write(audio_bytes)
         tmp.flush()
@@ -24,7 +26,7 @@ def _transcribe(audio_bytes: bytes, suffix: str, language: str | None = None) ->
             tmp.name,
             path_or_hf_repo=ASR_MODEL_REPO,
             language=language,
-            task="transcribe",
+            task=task,
             no_speech_threshold=0.6,
             logprob_threshold=-1.0,
             compression_ratio_threshold=2.4,
@@ -34,10 +36,10 @@ def _transcribe(audio_bytes: bytes, suffix: str, language: str | None = None) ->
     return result
 
 
-def _handle_transcription(uploaded_file: UploadedFile, language: str | None) -> None:
+def _handle_transcription(uploaded_file: UploadedFile, language: str | None, task: str) -> None:
     name = Path(uploaded_file.name)
     try:
-        result = _transcribe(uploaded_file.read(), name.suffix, language)
+        result = _transcribe(uploaded_file.read(), name.suffix, language, task)
         st.session_state["transcription"] = {
             "result": result,
             "file_stem": name.stem + "_transcript",
@@ -90,6 +92,16 @@ with language_col:
         label_visibility="collapsed",
     )
 
+translate_label_col, translate_col = st.columns([3, 1], vertical_alignment="center")
+with translate_label_col:
+    st.markdown(
+        "Translate to English",
+        help="Translates audio to English instead of transcribing in the source language.",
+    )
+with translate_col:
+    with st.container(horizontal_alignment="right"):
+        translate = st.toggle("Translate to English", value=False, label_visibility="collapsed")
+
 audio_source = uploaded_file or recorded_audio
 _, action_col = st.columns([3, 1])
 with action_col:
@@ -101,6 +113,6 @@ with action_col:
     )
 
 if transcribe_clicked and audio_source is not None:
-    _handle_transcription(audio_source, language)
+    _handle_transcription(audio_source, language, "translate" if translate else "transcribe")
 
 _display_transcription()
