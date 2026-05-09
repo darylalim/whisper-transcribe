@@ -3,21 +3,27 @@ from pathlib import Path
 
 import mlx_whisper
 import streamlit as st
+from mlx_whisper.tokenizer import LANGUAGES
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 ASR_MODEL_REPO = "mlx-community/whisper-large-v3-turbo"
 AUDIO_FORMATS = ("aac", "flac", "m4a", "mov", "mp3", "mp4", "ogg", "wav", "webm")
+LANGUAGE_CODES: list[str | None] = [None] + sorted(LANGUAGES, key=lambda c: LANGUAGES[c])
+
+
+def _format_language(code: str | None) -> str:
+    return "Detect" if code is None else LANGUAGES[code].title()
 
 
 @st.cache_data(show_spinner="Transcribing...")
-def _transcribe(audio_bytes: bytes, suffix: str) -> dict:
+def _transcribe(audio_bytes: bytes, suffix: str, language: str | None = None) -> dict:
     with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
         tmp.write(audio_bytes)
         tmp.flush()
         result = mlx_whisper.transcribe(
             tmp.name,
             path_or_hf_repo=ASR_MODEL_REPO,
-            language="en",
+            language=language,
             task="transcribe",
             no_speech_threshold=0.6,
             logprob_threshold=-1.0,
@@ -28,10 +34,10 @@ def _transcribe(audio_bytes: bytes, suffix: str) -> dict:
     return result
 
 
-def _handle_transcription(uploaded_file: UploadedFile) -> None:
+def _handle_transcription(uploaded_file: UploadedFile, language: str | None) -> None:
     name = Path(uploaded_file.name)
     try:
-        result = _transcribe(uploaded_file.read(), name.suffix)
+        result = _transcribe(uploaded_file.read(), name.suffix, language)
         st.session_state["transcription"] = {
             "result": result,
             "file_stem": name.stem + "_transcript",
@@ -67,6 +73,23 @@ with record_tab:
     if recorded_audio:
         st.audio(recorded_audio)
 
+language_label_col, language_col = st.columns([3, 1], vertical_alignment="center")
+with language_label_col:
+    st.markdown(
+        "Primary language",
+        help=(
+            "The primary language spoken in an uploaded file. "
+            "By default, the primary language will be detected automatically."
+        ),
+    )
+with language_col:
+    language = st.selectbox(
+        "Primary language",
+        LANGUAGE_CODES,
+        format_func=_format_language,
+        label_visibility="collapsed",
+    )
+
 audio_source = uploaded_file or recorded_audio
 _, action_col = st.columns([3, 1])
 with action_col:
@@ -78,6 +101,6 @@ with action_col:
     )
 
 if transcribe_clicked and audio_source is not None:
-    _handle_transcription(audio_source)
+    _handle_transcription(audio_source, language)
 
 _display_transcription()

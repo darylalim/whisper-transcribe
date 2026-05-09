@@ -60,7 +60,7 @@ def test_transcribe_success(mock_mlx):
 @patch("streamlit_app.mlx_whisper")
 def test_transcribe_calls_mlx_with_correct_params(mock_mlx):
     mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
-    _transcribe(b"fake audio params", ".mp3")
+    _transcribe(b"fake audio params", ".mp3", "en")
     mock_mlx.transcribe.assert_called_once()
     args, kwargs = mock_mlx.transcribe.call_args
     assert args[0].endswith(".mp3")
@@ -72,6 +72,14 @@ def test_transcribe_calls_mlx_with_correct_params(mock_mlx):
         "logprob_threshold": -1.0,
         "compression_ratio_threshold": 2.4,
     }
+
+
+@patch("streamlit_app.mlx_whisper")
+def test_transcribe_defaults_language_to_none(mock_mlx):
+    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
+    _transcribe(b"fake audio default lang", ".mp3")
+    _, kwargs = mock_mlx.transcribe.call_args
+    assert kwargs["language"] is None
 
 
 @patch("streamlit_app.mlx_whisper")
@@ -115,7 +123,7 @@ def mock_st():
 
 @patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
 def test_handle_transcription_stores_result(mock_transcribe, mock_st, mock_uploaded_file):
-    _handle_transcription(mock_uploaded_file)
+    _handle_transcription(mock_uploaded_file, None)
 
     assert "transcription" in mock_st.session_state
     data = mock_st.session_state["transcription"]
@@ -128,7 +136,7 @@ def test_handle_transcription_stores_result(mock_transcribe, mock_st, mock_uploa
     side_effect=RuntimeError("Transcription produced no text"),
 )
 def test_handle_transcription_runtime_error(mock_transcribe, mock_st, mock_uploaded_file):
-    _handle_transcription(mock_uploaded_file)
+    _handle_transcription(mock_uploaded_file, None)
 
     mock_st.error.assert_called_once_with("Transcription failed: Transcription produced no text")
     assert "transcription" not in mock_st.session_state
@@ -136,16 +144,18 @@ def test_handle_transcription_runtime_error(mock_transcribe, mock_st, mock_uploa
 
 @patch("streamlit_app._transcribe", side_effect=ValueError("unexpected"))
 def test_handle_transcription_unexpected_error(mock_transcribe, mock_st, mock_uploaded_file):
-    _handle_transcription(mock_uploaded_file)
+    _handle_transcription(mock_uploaded_file, None)
 
     mock_st.error.assert_called_once_with("Unexpected error: unexpected")
     mock_st.exception.assert_called_once()
 
 
 @patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
-def test_handle_transcription_passes_bytes_and_suffix(mock_transcribe, mock_st, mock_uploaded_file):
-    _handle_transcription(mock_uploaded_file)
-    mock_transcribe.assert_called_once_with(b"fake audio bytes", ".mp3")
+def test_handle_transcription_passes_bytes_suffix_and_language(
+    mock_transcribe, mock_st, mock_uploaded_file
+):
+    _handle_transcription(mock_uploaded_file, "fr")
+    mock_transcribe.assert_called_once_with(b"fake audio bytes", ".mp3", "fr")
 
 
 # --- _display_transcription ---
