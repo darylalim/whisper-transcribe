@@ -7,6 +7,9 @@ from streamlit_app import (
     ASR_MODEL_REPO,
     AUDIO_FORMATS,
     _display_transcription,
+    _format_segments_with_timestamps,
+    _format_timestamp,
+    _format_words_with_timestamps,
     _handle_transcription,
     _transcribe,
 )
@@ -60,7 +63,7 @@ def test_transcribe_success(mock_mlx):
 @patch("streamlit_app.mlx_whisper")
 def test_transcribe_calls_mlx_with_correct_params(mock_mlx):
     mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
-    _transcribe(b"fake audio params", ".mp3", "en", "transcribe")
+    _transcribe(b"fake audio params", ".mp3", "en", "transcribe", False)
     mock_mlx.transcribe.assert_called_once()
     args, kwargs = mock_mlx.transcribe.call_args
     assert args[0].endswith(".mp3")
@@ -68,10 +71,27 @@ def test_transcribe_calls_mlx_with_correct_params(mock_mlx):
         "path_or_hf_repo": "mlx-community/whisper-large-v3-turbo",
         "language": "en",
         "task": "transcribe",
+        "word_timestamps": False,
         "no_speech_threshold": 0.6,
         "logprob_threshold": -1.0,
         "compression_ratio_threshold": 2.4,
     }
+
+
+@patch("streamlit_app.mlx_whisper")
+def test_transcribe_defaults_word_timestamps_to_false(mock_mlx):
+    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
+    _transcribe(b"fake audio default words", ".mp3")
+    _, kwargs = mock_mlx.transcribe.call_args
+    assert kwargs["word_timestamps"] is False
+
+
+@patch("streamlit_app.mlx_whisper")
+def test_transcribe_passes_word_timestamps_true(mock_mlx):
+    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
+    _transcribe(b"fake audio words", ".mp3", "en", "transcribe", True)
+    _, kwargs = mock_mlx.transcribe.call_args
+    assert kwargs["word_timestamps"] is True
 
 
 @patch("streamlit_app.mlx_whisper")
@@ -140,12 +160,13 @@ def mock_st():
 
 @patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
 def test_handle_transcription_stores_result(mock_transcribe, mock_st, mock_uploaded_file):
-    _handle_transcription(mock_uploaded_file, None, "transcribe")
+    _handle_transcription(mock_uploaded_file, None, "transcribe", "Off")
 
     assert "transcription" in mock_st.session_state
     data = mock_st.session_state["transcription"]
     assert data["result"] == MOCK_WHISPER_RESULT
     assert data["file_stem"] == "interview_transcript"
+    assert data["timestamps"] == "Off"
 
 
 @patch(
@@ -153,7 +174,7 @@ def test_handle_transcription_stores_result(mock_transcribe, mock_st, mock_uploa
     side_effect=RuntimeError("Transcription produced no text"),
 )
 def test_handle_transcription_runtime_error(mock_transcribe, mock_st, mock_uploaded_file):
-    _handle_transcription(mock_uploaded_file, None, "transcribe")
+    _handle_transcription(mock_uploaded_file, None, "transcribe", "Off")
 
     mock_st.error.assert_called_once_with("Transcription failed: Transcription produced no text")
     assert "transcription" not in mock_st.session_state
@@ -161,18 +182,26 @@ def test_handle_transcription_runtime_error(mock_transcribe, mock_st, mock_uploa
 
 @patch("streamlit_app._transcribe", side_effect=ValueError("unexpected"))
 def test_handle_transcription_unexpected_error(mock_transcribe, mock_st, mock_uploaded_file):
-    _handle_transcription(mock_uploaded_file, None, "transcribe")
+    _handle_transcription(mock_uploaded_file, None, "transcribe", "Off")
 
     mock_st.error.assert_called_once_with("Unexpected error: unexpected")
     mock_st.exception.assert_called_once()
 
 
 @patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
-def test_handle_transcription_passes_bytes_suffix_language_and_task(
+def test_handle_transcription_passes_args_with_word_timestamps_off(
     mock_transcribe, mock_st, mock_uploaded_file
 ):
-    _handle_transcription(mock_uploaded_file, "fr", "translate")
-    mock_transcribe.assert_called_once_with(b"fake audio bytes", ".mp3", "fr", "translate")
+    _handle_transcription(mock_uploaded_file, "fr", "translate", "Sentence")
+    mock_transcribe.assert_called_once_with(b"fake audio bytes", ".mp3", "fr", "translate", False)
+
+
+@patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
+def test_handle_transcription_passes_word_timestamps_when_word(
+    mock_transcribe, mock_st, mock_uploaded_file
+):
+    _handle_transcription(mock_uploaded_file, None, "transcribe", "Word")
+    mock_transcribe.assert_called_once_with(b"fake audio bytes", ".mp3", None, "transcribe", True)
 
 
 # --- _display_transcription ---
@@ -188,6 +217,7 @@ def test_display_transcription_shows_transcript(mock_st):
     mock_st.session_state["transcription"] = {
         "result": MOCK_WHISPER_RESULT,
         "file_stem": "interview_transcript",
+        "timestamps": "Off",
     }
 
     _display_transcription()
@@ -201,10 +231,75 @@ def test_display_transcription_download_button(mock_st):
     mock_st.session_state["transcription"] = {
         "result": MOCK_WHISPER_RESULT,
         "file_stem": "interview_transcript",
+        "timestamps": "Off",
     }
 
     _display_transcription()
 
     mock_st.download_button.assert_called_once_with(
         "Download", "Hello world", "interview_transcript.txt", "text/plain"
+    )
+
+
+def test_display_transcription_sentence_timestamps(mock_st):
+    mock_st.session_state["transcription"] = {
+        "result": MOCK_WHISPER_RESULT,
+        "file_stem": "interview_transcript",
+        "timestamps": "Sentence",
+    }
+
+    _display_transcription()
+
+    mock_st.text_area.assert_called_once_with(
+        "Transcript",
+        "[00:00:00.000 - 00:00:02.500] Hello world",
+        height=300,
+        disabled=True,
+        label_visibility="collapsed",
+    )
+
+
+def test_display_transcription_word_timestamps(mock_st):
+    mock_st.session_state["transcription"] = {
+        "result": MOCK_WHISPER_RESULT,
+        "file_stem": "interview_transcript",
+        "timestamps": "Word",
+    }
+
+    _display_transcription()
+
+    mock_st.text_area.assert_called_once_with(
+        "Transcript",
+        "[00:00:00.000 - 00:00:01.000] Hello\n[00:00:01.000 - 00:00:02.500] world",
+        height=300,
+        disabled=True,
+        label_visibility="collapsed",
+    )
+
+
+# --- formatting helpers ---
+
+
+def test_format_timestamp_zero():
+    assert _format_timestamp(0.0) == "00:00:00.000"
+
+
+def test_format_timestamp_minutes_and_seconds():
+    assert _format_timestamp(65.5) == "00:01:05.500"
+
+
+def test_format_timestamp_hours():
+    assert _format_timestamp(3661.123) == "01:01:01.123"
+
+
+def test_format_segments_with_timestamps():
+    assert (
+        _format_segments_with_timestamps(MOCK_WHISPER_RESULT)
+        == "[00:00:00.000 - 00:00:02.500] Hello world"
+    )
+
+
+def test_format_words_with_timestamps():
+    assert _format_words_with_timestamps(MOCK_WHISPER_RESULT) == (
+        "[00:00:00.000 - 00:00:01.000] Hello\n[00:00:01.000 - 00:00:02.500] world"
     )

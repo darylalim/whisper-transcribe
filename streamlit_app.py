@@ -9,15 +9,42 @@ from streamlit.runtime.uploaded_file_manager import UploadedFile
 ASR_MODEL_REPO = "mlx-community/whisper-large-v3-turbo"
 AUDIO_FORMATS = ("aac", "flac", "m4a", "mov", "mp3", "mp4", "ogg", "wav", "webm")
 LANGUAGE_CODES: list[str | None] = [None] + sorted(LANGUAGES, key=lambda c: LANGUAGES[c])
+TIMESTAMP_CHOICES = ("Off", "Sentence", "Word")
 
 
 def _format_language(code: str | None) -> str:
     return "Detect" if code is None else LANGUAGES[code].title()
 
 
+def _format_timestamp(seconds: float) -> str:
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = seconds % 60
+    return f"{h:02d}:{m:02d}:{s:06.3f}"
+
+
+def _format_segments_with_timestamps(result: dict) -> str:
+    return "\n".join(
+        f"[{_format_timestamp(s['start'])} - {_format_timestamp(s['end'])}] {s['text'].strip()}"
+        for s in result["segments"]
+    )
+
+
+def _format_words_with_timestamps(result: dict) -> str:
+    return "\n".join(
+        f"[{_format_timestamp(w['start'])} - {_format_timestamp(w['end'])}] {w['word'].strip()}"
+        for s in result["segments"]
+        for w in s["words"]
+    )
+
+
 @st.cache_data(show_spinner="Transcribing...")
 def _transcribe(
-    audio_bytes: bytes, suffix: str, language: str | None = None, task: str = "transcribe"
+    audio_bytes: bytes,
+    suffix: str,
+    language: str | None = None,
+    task: str = "transcribe",
+    word_timestamps: bool = False,
 ) -> dict:
     with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
         tmp.write(audio_bytes)
@@ -27,6 +54,7 @@ def _transcribe(
             path_or_hf_repo=ASR_MODEL_REPO,
             language=language,
             task=task,
+            word_timestamps=word_timestamps,
             no_speech_threshold=0.6,
             logprob_threshold=-1.0,
             compression_ratio_threshold=2.4,
@@ -36,13 +64,18 @@ def _transcribe(
     return result
 
 
-def _handle_transcription(uploaded_file: UploadedFile, language: str | None, task: str) -> None:
+def _handle_transcription(
+    uploaded_file: UploadedFile, language: str | None, task: str, timestamps: str
+) -> None:
     name = Path(uploaded_file.name)
     try:
-        result = _transcribe(uploaded_file.read(), name.suffix, language, task)
+        result = _transcribe(
+            uploaded_file.read(), name.suffix, language, task, timestamps == "Word"
+        )
         st.session_state["transcription"] = {
             "result": result,
             "file_stem": name.stem + "_transcript",
+            "timestamps": timestamps,
         }
     except RuntimeError as e:
         st.error(f"Transcription failed: {e}")
@@ -54,7 +87,13 @@ def _handle_transcription(uploaded_file: UploadedFile, language: str | None, tas
 def _display_transcription() -> None:
     if (data := st.session_state.get("transcription")) is None:
         return
-    transcript = data["result"]["text"].strip()
+    timestamps = data["timestamps"]
+    if timestamps == "Sentence":
+        transcript = _format_segments_with_timestamps(data["result"])
+    elif timestamps == "Word":
+        transcript = _format_words_with_timestamps(data["result"])
+    else:
+        transcript = data["result"]["text"].strip()
     st.text_area("Transcript", transcript, height=300, disabled=True, label_visibility="collapsed")
     st.download_button("Download", transcript, data["file_stem"] + ".txt", "text/plain")
 
@@ -102,6 +141,19 @@ with translate_col:
     with st.container(horizontal_alignment="right"):
         translate = st.toggle("Translate to English", value=False, label_visibility="collapsed")
 
+timestamps_label_col, timestamps_col = st.columns([3, 1], vertical_alignment="center")
+with timestamps_label_col:
+    st.markdown(
+        "Include timestamps",
+        help="Adds time ranges per sentence or per word. Word-level is slower.",
+    )
+with timestamps_col:
+    timestamps = st.selectbox(
+        "Include timestamps",
+        TIMESTAMP_CHOICES,
+        label_visibility="collapsed",
+    )
+
 audio_source = uploaded_file or recorded_audio
 _, action_col = st.columns([3, 1])
 with action_col:
@@ -113,6 +165,11 @@ with action_col:
     )
 
 if transcribe_clicked and audio_source is not None:
-    _handle_transcription(audio_source, language, "translate" if translate else "transcribe")
+    _handle_transcription(
+        audio_source,
+        language,
+        "translate" if translate else "transcribe",
+        timestamps,
+    )
 
 _display_transcription()
