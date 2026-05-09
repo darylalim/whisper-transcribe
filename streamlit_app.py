@@ -53,28 +53,31 @@ def _display_transcription() -> None:
 
 # UI
 st.title("Whisper Pipeline")
-record_tab, upload_tab = st.tabs(["Record", "Upload"])
-with record_tab:
-    recorded_audio = st.audio_input("Record audio", label_visibility="collapsed")
-    if recorded_audio:
-        st.audio(recorded_audio)
-    record_submitted = st.button(
-        "Transcribe", type="primary", key="record_btn", disabled=not recorded_audio
-    )
 
+upload_tab, record_tab = st.tabs(["Upload", "Record"])
 with upload_tab:
     uploaded_file = st.file_uploader(
         "Upload audio file", type=AUDIO_FORMATS, label_visibility="collapsed"
     )
     if uploaded_file:
         st.audio(uploaded_file)
-    upload_submitted = st.button(
-        "Transcribe", type="primary", key="upload_btn", disabled=not uploaded_file
+
+with record_tab:
+    recorded_audio = st.audio_input("Record audio", label_visibility="collapsed")
+    if recorded_audio:
+        st.audio(recorded_audio)
+
+audio_source = uploaded_file or recorded_audio
+_, action_col = st.columns([3, 1])
+with action_col:
+    transcribe_clicked = st.button(
+        "Transcribe",
+        type="primary",
+        disabled=audio_source is None,
+        use_container_width=True,
     )
 
-if record_submitted and recorded_audio:
-    _handle_transcription(recorded_audio)
-elif upload_submitted and uploaded_file:
-    _handle_transcription(uploaded_file)
+if transcribe_clicked and audio_source is not None:
+    _handle_transcription(audio_source)
 
 _display_transcription()
