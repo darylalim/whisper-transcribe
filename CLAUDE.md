@@ -43,8 +43,10 @@ Direct `mlx_whisper.transcribe()` call with `ASR_MODEL_REPO = "mlx-community/whi
 
 ### Input Modes
 
-- **Record** / **Upload** tabs (`st.tabs`) — each with audio preview (`st.audio`) and a "Transcribe" button
-- `_transcribe` writes audio bytes to a temp file, calls `mlx_whisper.transcribe()`, and caches results
+- **Upload** / **Record** tabs (`st.tabs`) — each contains its source widget plus an audio preview (`st.audio`)
+- Below the tabs: a **Primary language** selector, a **Translate to English** toggle, an **Include timestamps** dropdown (Off / Sentence / Word), and a single right-aligned **Transcribe** button
+- The button dispatches whichever input has content (uploaded file preferred over recording when both are present); the toggle maps to Whisper's `task="translate"` (force English output) vs `task="transcribe"` (output in source language); the timestamps dropdown maps to mlx-whisper's `word_timestamps=True` only when set to "Word", and the display formats segments accordingly
+- `_transcribe` writes audio bytes to a temp file, calls `mlx_whisper.transcribe()`, and caches results (`language=None` → Whisper auto-detects)
 - `_handle_transcription` reads uploaded file bytes and stores result in `st.session_state`
 - `_display_transcription` renders transcript in a read-only text area with a download button
 
@@ -59,9 +61,10 @@ aac, flac, m4a, mov, mp3, mp4, ogg, wav, webm
 
 ### Testing
 
-- `_transcribe` — mocked `mlx_whisper`, parameter verification
-- `_handle_transcription` — session state storage, error handling, bytes/suffix passing
-- `_display_transcription` — text area rendering, download button
+- `_transcribe` — mocked `mlx_whisper`, kwarg verification (language, task, word_timestamps), defaults, temp-file cleanup, empty-text guard
+- `_handle_transcription` — session state storage, error handling, argument forwarding (including timestamps mode → `word_timestamps`)
+- `_display_transcription` — text area + download button rendering for None / Sentence / Word modes
+- Formatting helpers — `_format_timestamp`, `_format_segments_with_timestamps`, `_format_words_with_timestamps`
 
 ## Resources
 
