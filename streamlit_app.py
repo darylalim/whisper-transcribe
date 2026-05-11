@@ -7,44 +7,39 @@ from mlx_whisper.tokenizer import LANGUAGES
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 ASR_MODEL_REPO = "mlx-community/whisper-large-v3-turbo"
-AUDIO_FORMATS = ("aac", "flac", "m4a", "mov", "mp3", "mp4", "ogg", "wav", "webm")
+AUDIO_FORMATS = ("mp3", "m4a", "wav", "flac", "ogg", "aac", "mp4", "mov", "webm", "mkv")
 LANGUAGE_CODES: list[str | None] = [None] + sorted(LANGUAGES, key=lambda c: LANGUAGES[c])
-TIMESTAMP_CHOICES = ("Off", "Sentence", "Word")
 
 
 def _format_language(code: str | None) -> str:
     return "Detect" if code is None else LANGUAGES[code].title()
 
 
-def _format_timestamp(seconds: float) -> str:
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = seconds % 60
-    return f"{h:02d}:{m:02d}:{s:06.3f}"
+def _format_timestamp(seconds: float, decimal_marker: str = ".") -> str:
+    ms = round(seconds * 1000)
+    h, ms = divmod(ms, 3_600_000)
+    m, ms = divmod(ms, 60_000)
+    s, ms = divmod(ms, 1_000)
+    return f"{h:02d}:{m:02d}:{s:02d}{decimal_marker}{ms:03d}"
 
 
-def _format_segments_with_timestamps(result: dict) -> str:
+def _format_srt(result: dict) -> str:
     return "\n".join(
-        f"[{_format_timestamp(s['start'])} - {_format_timestamp(s['end'])}] {s['text'].strip()}"
-        for s in result["segments"]
+        f"{i}\n"
+        f"{_format_timestamp(s['start'], decimal_marker=',')} --> "
+        f"{_format_timestamp(s['end'], decimal_marker=',')}\n"
+        f"{s['text'].strip().replace('-->', '->')}\n"
+        for i, s in enumerate(result["segments"], start=1)
     )
 
 
-def _format_words_with_timestamps(result: dict) -> str:
-    return "\n".join(
-        f"[{_format_timestamp(w['start'])} - {_format_timestamp(w['end'])}] {w['word'].strip()}"
-        for s in result["segments"]
-        for w in s["words"]
-    )
-
-
-@st.cache_data(show_spinner="Transcribing...")
+@st.cache_data(show_spinner=False, max_entries=20)
 def _transcribe(
     audio_bytes: bytes,
     suffix: str,
     language: str | None = None,
     task: str = "transcribe",
-    word_timestamps: bool = False,
+    initial_prompt: str | None = None,
 ) -> dict:
     with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
         tmp.write(audio_bytes)
@@ -54,7 +49,7 @@ def _transcribe(
             path_or_hf_repo=ASR_MODEL_REPO,
             language=language,
             task=task,
-            word_timestamps=word_timestamps,
+            initial_prompt=initial_prompt,
             no_speech_threshold=0.6,
             logprob_threshold=-1.0,
             compression_ratio_threshold=2.4,
@@ -65,37 +60,80 @@ def _transcribe(
 
 
 def _handle_transcription(
-    uploaded_file: UploadedFile, language: str | None, task: str, timestamps: str
+    uploaded_files: list[UploadedFile],
+    language: str | None,
+    task: str,
+    include_subtitles: bool,
+    initial_prompt: str | None = None,
 ) -> None:
-    name = Path(uploaded_file.name)
-    try:
-        result = _transcribe(
-            uploaded_file.read(), name.suffix, language, task, timestamps == "Word"
+    transcriptions = []
+    total = len(uploaded_files)
+    with st.status(f"Transcribing {total} file(s)...", expanded=True) as status:
+        for i, uploaded_file in enumerate(uploaded_files, start=1):
+            status.update(label=f"Transcribing {uploaded_file.name} ({i}/{total})...")
+            name = Path(uploaded_file.name)
+            try:
+                result = _transcribe(
+                    uploaded_file.read(),
+                    name.suffix,
+                    language,
+                    task,
+                    initial_prompt,
+                )
+                transcriptions.append(
+                    {
+                        "result": result,
+                        "file_stem": f"{name.stem}_{name.suffix.lstrip('.')}_transcript",
+                        "filename": uploaded_file.name,
+                        "include_subtitles": include_subtitles,
+                    }
+                )
+            except RuntimeError as e:
+                st.error(f"Transcription failed for {uploaded_file.name}: {e}")
+            except Exception as e:
+                st.error(f"Unexpected error for {uploaded_file.name}: {e}")
+                st.exception(e)
+        status.update(
+            label=f"Transcribed {len(transcriptions)}/{total} file(s)",
+            state="complete",
         )
-        st.session_state["transcription"] = {
-            "result": result,
-            "file_stem": name.stem + "_transcript",
-            "timestamps": timestamps,
-        }
-    except RuntimeError as e:
-        st.error(f"Transcription failed: {e}")
-    except Exception as e:
-        st.error(f"Unexpected error: {e}")
-        st.exception(e)
+    st.session_state["transcription"] = transcriptions
 
 
 def _display_transcription() -> None:
-    if (data := st.session_state.get("transcription")) is None:
-        return
-    timestamps = data["timestamps"]
-    if timestamps == "Sentence":
-        transcript = _format_segments_with_timestamps(data["result"])
-    elif timestamps == "Word":
-        transcript = _format_words_with_timestamps(data["result"])
-    else:
-        transcript = data["result"]["text"].strip()
-    st.text_area("Transcript", transcript, height=300, disabled=True, label_visibility="collapsed")
-    st.download_button("Download", transcript, data["file_stem"] + ".txt", "text/plain")
+    transcriptions = st.session_state.get("transcription") or []
+    for i, data in enumerate(transcriptions):
+        include_subtitles = data["include_subtitles"]
+        if include_subtitles:
+            initial = _format_srt(data["result"])
+        else:
+            initial = data["result"]["text"].strip()
+        st.subheader(data["filename"])
+        transcript = st.text_area(
+            "Transcript",
+            initial,
+            height=300,
+            label_visibility="collapsed",
+            key=f"transcript_{i}",
+        )
+        if include_subtitles:
+            st.download_button(
+                ".srt",
+                transcript,
+                data["file_stem"] + ".srt",
+                "application/x-subrip",
+                key=f"download_srt_{i}",
+                use_container_width=True,
+            )
+        else:
+            st.download_button(
+                ".txt",
+                transcript,
+                data["file_stem"] + ".txt",
+                "text/plain",
+                key=f"download_txt_{i}",
+                use_container_width=True,
+            )
 
 
 # UI
@@ -103,10 +141,13 @@ st.title("Whisper Pipeline")
 
 upload_tab, record_tab = st.tabs(["Upload", "Record"])
 with upload_tab:
-    uploaded_file = st.file_uploader(
-        "Upload audio file", type=AUDIO_FORMATS, label_visibility="collapsed"
+    uploaded_files = st.file_uploader(
+        "Upload audio file",
+        type=AUDIO_FORMATS,
+        label_visibility="collapsed",
+        accept_multiple_files=True,
     )
-    if uploaded_file:
+    for uploaded_file in uploaded_files:
         st.audio(uploaded_file)
 
 with record_tab:
@@ -141,35 +182,57 @@ with translate_col:
     with st.container(horizontal_alignment="right"):
         translate = st.toggle("Translate to English", value=False, label_visibility="collapsed")
 
-timestamps_label_col, timestamps_col = st.columns([3, 1], vertical_alignment="center")
-with timestamps_label_col:
+subtitles_label_col, subtitles_col = st.columns([3, 1], vertical_alignment="center")
+with subtitles_label_col:
     st.markdown(
-        "Include timestamps",
-        help="Adds time ranges per sentence or per word. Word-level is slower.",
+        "Include subtitles",
+        help=(
+            "Best for adding subtitles to a video. When enabled, the project will be "
+            "initialized with subtitles which you can then alter in the editor."
+        ),
     )
-with timestamps_col:
-    timestamps = st.selectbox(
-        "Include timestamps",
-        TIMESTAMP_CHOICES,
-        label_visibility="collapsed",
-    )
+with subtitles_col:
+    with st.container(horizontal_alignment="right"):
+        include_subtitles = st.toggle(
+            "Include subtitles", value=False, label_visibility="collapsed"
+        )
 
-audio_source = uploaded_file or recorded_audio
+keyterms_label_col, _ = st.columns([3, 1], vertical_alignment="center")
+with keyterms_label_col:
+    st.markdown(
+        "Keyterms",
+        help=(
+            "Up to 50 keyterms to be boosted during transcription. "
+            "Boosted terms are more likely to appear in the output."
+        ),
+    )
+keyterms = st.multiselect(
+    "Keyterms",
+    options=[],
+    accept_new_options=True,
+    max_selections=50,
+    placeholder="Add keyterms...",
+    label_visibility="collapsed",
+)
+initial_prompt = ", ".join(keyterms) or None
+
+audio_sources = uploaded_files or ([recorded_audio] if recorded_audio else [])
 _, action_col = st.columns([3, 1])
 with action_col:
     transcribe_clicked = st.button(
         "Transcribe",
         type="primary",
-        disabled=audio_source is None,
+        disabled=not audio_sources,
         use_container_width=True,
     )
 
-if transcribe_clicked and audio_source is not None:
+if transcribe_clicked and audio_sources:
     _handle_transcription(
-        audio_source,
+        audio_sources,
         language,
         "translate" if translate else "transcribe",
-        timestamps,
+        include_subtitles,
+        initial_prompt,
     )
 
 _display_transcription()
