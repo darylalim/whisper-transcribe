@@ -7,12 +7,13 @@ from streamlit_app import (
     ASR_MODEL_REPO,
     AUDIO_FORMATS,
     _display_transcription,
+    _fetch_url_audio,
     _fetch_youtube_audio,
     _format_srt,
     _format_timestamp,
     _handle_transcription,
+    _RemoteAudio,
     _transcribe,
-    _YouTubeAudio,
 )
 
 MOCK_WHISPER_RESULT = {
@@ -61,11 +62,11 @@ def test_audio_formats():
     )
 
 
-# --- _YouTubeAudio / _fetch_youtube_audio ---
+# --- _RemoteAudio / _fetch_youtube_audio / _fetch_url_audio ---
 
 
-def test_youtube_audio_adapter():
-    audio = _YouTubeAudio("video.m4a", b"audio bytes")
+def test_remote_audio_adapter():
+    audio = _RemoteAudio("video.m4a", b"audio bytes")
     assert audio.name == "video.m4a"
     assert audio.read() == b"audio bytes"
 
@@ -108,6 +109,41 @@ def test_fetch_youtube_audio_uses_safe_options(mock_yt_dlp, tmp_path):
     assert opts["noplaylist"] is True
     assert opts["restrictfilenames"] is True
     assert opts["quiet"] is True
+
+
+@patch("streamlit_app.urlopen")
+def test_fetch_url_audio_returns_bytes_and_filename(mock_urlopen):
+    mock_response = MagicMock()
+    mock_response.read.return_value = b"file bytes"
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    data, filename = _fetch_url_audio("https://example.com/audio.mp3")
+
+    assert data == b"file bytes"
+    assert filename == "audio.mp3"
+    mock_urlopen.assert_called_once_with("https://example.com/audio.mp3")
+
+
+@patch("streamlit_app.urlopen")
+def test_fetch_url_audio_strips_query_from_filename(mock_urlopen):
+    mock_response = MagicMock()
+    mock_response.read.return_value = b"bytes"
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    _, filename = _fetch_url_audio("https://example.com/path/audio.wav?t=42")
+
+    assert filename == "audio.wav"
+
+
+@patch("streamlit_app.urlopen")
+def test_fetch_url_audio_falls_back_when_no_path(mock_urlopen):
+    mock_response = MagicMock()
+    mock_response.read.return_value = b"bytes"
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    _, filename = _fetch_url_audio("https://example.com/")
+
+    assert filename == "download"
 
 
 # --- _transcribe ---

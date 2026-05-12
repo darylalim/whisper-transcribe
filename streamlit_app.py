@@ -2,6 +2,9 @@ import re
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
+from urllib.error import URLError
+from urllib.parse import urlparse
+from urllib.request import urlopen
 
 import mlx_whisper
 import streamlit as st
@@ -13,9 +16,10 @@ ASR_MODEL_REPO = "mlx-community/whisper-large-v3-turbo"
 AUDIO_FORMATS = ("mp3", "m4a", "wav", "flac", "ogg", "aac", "mp4", "mov", "webm", "mkv")
 LANGUAGE_CODES: list[str | None] = [None] + sorted(LANGUAGES, key=lambda c: LANGUAGES[c])
 YOUTUBE_URL_RE = re.compile(r"^https?://(www\.|m\.)?(youtube\.com/|youtu\.be/)", re.IGNORECASE)
+URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 
-class _YouTubeAudio:
+class _RemoteAudio:
     def __init__(self, name: str, data: bytes) -> None:
         self.name = name
         self._data = data
@@ -39,6 +43,14 @@ def _fetch_youtube_audio(url: str) -> tuple[bytes, str]:
             info = ydl.extract_info(url, download=True)
             downloaded = Path(ydl.prepare_filename(info))
         return downloaded.read_bytes(), downloaded.name
+
+
+@st.cache_data(show_spinner="Downloading audio from URL...", max_entries=5)
+def _fetch_url_audio(url: str) -> tuple[bytes, str]:
+    with urlopen(url) as resp:
+        data = resp.read()
+    filename = Path(urlparse(url).path).name or "download"
+    return data, filename
 
 
 def _format_language(code: str | None) -> str:
@@ -93,7 +105,7 @@ def _transcribe(
 
 
 def _handle_transcription(
-    uploaded_files: Sequence[UploadedFile | _YouTubeAudio],
+    uploaded_files: Sequence[UploadedFile | _RemoteAudio],
     language: str | None,
     task: str,
     include_subtitles: bool,
@@ -183,7 +195,7 @@ def _display_transcription() -> None:
 # UI
 st.title("Whisper Pipeline")
 
-upload_tab, record_tab, youtube_tab = st.tabs(["Upload", "Record", "YouTube"])
+upload_tab, record_tab, youtube_tab, url_tab = st.tabs(["Upload", "Record", "YouTube", "URL"])
 with upload_tab:
     uploaded_files = st.file_uploader(
         "Upload audio file",
@@ -205,14 +217,32 @@ with youtube_tab:
         placeholder="https://www.youtube.com/watch?v=...",
         label_visibility="collapsed",
     ).strip()
-    youtube_audio: _YouTubeAudio | None = None
+    youtube_audio: _RemoteAudio | None = None
     if youtube_url and YOUTUBE_URL_RE.match(youtube_url):
         try:
             data, filename = _fetch_youtube_audio(youtube_url)
-            youtube_audio = _YouTubeAudio(filename, data)
+            youtube_audio = _RemoteAudio(filename, data)
             st.audio(data)
         except yt_dlp.utils.DownloadError as e:
             st.error(f"Could not download from YouTube: {e}")
+        except Exception as e:
+            st.error(f"Unexpected error: {e}")
+            st.exception(e)
+
+with url_tab:
+    file_url = st.text_input(
+        "Audio/video file URL",
+        placeholder="Audio/video file URL",
+        label_visibility="collapsed",
+    ).strip()
+    url_audio: _RemoteAudio | None = None
+    if file_url and URL_RE.match(file_url):
+        try:
+            data, filename = _fetch_url_audio(file_url)
+            url_audio = _RemoteAudio(filename, data)
+            st.audio(data)
+        except URLError as e:
+            st.error(f"Could not download from URL: {e}")
         except Exception as e:
             st.error(f"Unexpected error: {e}")
             st.exception(e)
@@ -272,6 +302,7 @@ audio_sources = (
     uploaded_files
     or ([recorded_audio] if recorded_audio else [])
     or ([youtube_audio] if youtube_audio else [])
+    or ([url_audio] if url_audio else [])
 )
 _, action_col = st.columns([3, 1])
 with action_col:
