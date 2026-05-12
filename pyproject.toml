@@ -1,6 +1,6 @@
 [project]
 name = "whisper-pipeline"
-version = "0.7.0"
+version = "0.8.0"
 description = "Transcribe or translate audio and video files using the Whisper large-v3-turbo model on Apple Silicon."
 requires-python = ">=3.12"
 dependencies = [
