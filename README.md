@@ -7,8 +7,9 @@ Transcribe or translate audio and video files using the Whisper large-v3-turbo m
 - **Whisper large-v3-turbo** via [mlx-whisper](https://pypi.org/project/mlx-whisper/), accelerated on Apple Silicon
 - **99-language transcription** with auto-detect or manual selection
 - **Translate non-English audio to English**
-- **Multi-file upload** (up to 500 MB per file) and **in-browser recording**
+- **Multi-file upload** (up to 500 MB per file), **in-browser recording**, and **YouTube URL** input via `yt-dlp`
 - **Editable subtitle preview** with `.srt` export
+- **No-verbatim mode** that removes filler words, false starts, and repetitions
 - **Keyterm biasing** for proper nouns and jargon (up to 50 terms)
 - **Cached transcriptions** via `@st.cache_data`
 
@@ -32,11 +33,12 @@ uv sync
 uv run streamlit run streamlit_app.py
 ```
 
-Upload one or more files (`mp3, m4a, wav, flac, ogg, aac, mp4, mov, webm, mkv`) or record audio in-browser, then click **Transcribe**.
+Upload one or more files (`mp3, m4a, wav, flac, ogg, aac, mp4, mov, webm, mkv`), record audio in-browser, or paste a YouTube URL, then click **Transcribe**.
 
 Optional controls:
 
 - **Primary language** — auto-detected by default
 - **Translate to English** — translate non-English audio
 - **Include subtitles** — initialize an editable SRT preview; the download button switches from `.txt` to `.srt`
+- **No verbatim** — remove filler words, false starts, and repetitions
 - **Keyterms** — bias decoding toward specific terms (proper nouns, jargon)
