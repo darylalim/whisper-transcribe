@@ -136,6 +136,8 @@ def test_transcribe_calls_mlx_with_correct_params(mock_mlx):
         "no_speech_threshold": 0.6,
         "logprob_threshold": -1.0,
         "compression_ratio_threshold": 2.4,
+        "word_timestamps": False,
+        "hallucination_silence_threshold": None,
     }
 
 
@@ -178,6 +180,24 @@ def test_transcribe_passes_initial_prompt(mock_mlx):
     _transcribe(b"fake audio prompt", ".mp3", "en", "transcribe", "Anthropic, MLX")
     _, kwargs = mock_mlx.transcribe.call_args
     assert kwargs["initial_prompt"] == "Anthropic, MLX"
+
+
+@patch("streamlit_app.mlx_whisper")
+def test_transcribe_defaults_no_verbatim_off(mock_mlx):
+    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
+    _transcribe(b"fake audio no verbatim default", ".mp3")
+    _, kwargs = mock_mlx.transcribe.call_args
+    assert kwargs["word_timestamps"] is False
+    assert kwargs["hallucination_silence_threshold"] is None
+
+
+@patch("streamlit_app.mlx_whisper")
+def test_transcribe_no_verbatim_enables_hallucination_skip(mock_mlx):
+    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
+    _transcribe(b"fake audio no verbatim on", ".mp3", None, "transcribe", None, True)
+    _, kwargs = mock_mlx.transcribe.call_args
+    assert kwargs["word_timestamps"] is True
+    assert kwargs["hallucination_silence_threshold"] == 2.0
 
 
 @patch("streamlit_app.mlx_whisper")
@@ -270,14 +290,24 @@ def test_handle_transcription_unexpected_error(mock_transcribe, mock_st, mock_up
 @patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
 def test_handle_transcription_passes_args(mock_transcribe, mock_st, mock_uploaded_file):
     _handle_transcription([mock_uploaded_file], "fr", "translate", True)
-    mock_transcribe.assert_called_once_with(b"fake audio bytes", ".mp3", "fr", "translate", None)
+    mock_transcribe.assert_called_once_with(
+        b"fake audio bytes", ".mp3", "fr", "translate", None, False
+    )
 
 
 @patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
 def test_handle_transcription_passes_initial_prompt(mock_transcribe, mock_st, mock_uploaded_file):
     _handle_transcription([mock_uploaded_file], None, "transcribe", False, "Anthropic, MLX")
     mock_transcribe.assert_called_once_with(
-        b"fake audio bytes", ".mp3", None, "transcribe", "Anthropic, MLX"
+        b"fake audio bytes", ".mp3", None, "transcribe", "Anthropic, MLX", False
+    )
+
+
+@patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
+def test_handle_transcription_passes_no_verbatim(mock_transcribe, mock_st, mock_uploaded_file):
+    _handle_transcription([mock_uploaded_file], None, "transcribe", False, None, True)
+    mock_transcribe.assert_called_once_with(
+        b"fake audio bytes", ".mp3", None, "transcribe", None, True
     )
 
 

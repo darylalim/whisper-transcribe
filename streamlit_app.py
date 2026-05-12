@@ -70,6 +70,7 @@ def _transcribe(
     language: str | None = None,
     task: str = "transcribe",
     initial_prompt: str | None = None,
+    no_verbatim: bool = False,
 ) -> dict:
     with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
         tmp.write(audio_bytes)
@@ -83,6 +84,8 @@ def _transcribe(
             no_speech_threshold=0.6,
             logprob_threshold=-1.0,
             compression_ratio_threshold=2.4,
+            word_timestamps=no_verbatim,
+            hallucination_silence_threshold=2.0 if no_verbatim else None,
         )
     if not result.get("text", "").strip():
         raise RuntimeError("Transcription produced no text")
@@ -95,6 +98,7 @@ def _handle_transcription(
     task: str,
     include_subtitles: bool,
     initial_prompt: str | None = None,
+    no_verbatim: bool = False,
 ) -> None:
     transcriptions = []
     total = len(uploaded_files)
@@ -109,6 +113,7 @@ def _handle_transcription(
                     language,
                     task,
                     initial_prompt,
+                    no_verbatim,
                 )
                 transcriptions.append(
                     {
@@ -245,6 +250,19 @@ with subtitles_col:
             "Include subtitles", value=False, label_visibility="collapsed"
         )
 
+no_verbatim_label_col, no_verbatim_col = st.columns([3, 1], vertical_alignment="center")
+with no_verbatim_label_col:
+    st.markdown(
+        "No verbatim",
+        help=(
+            "When enabled, the transcription will be cleaned up by removing "
+            "filler words, false starts, and repetitions."
+        ),
+    )
+with no_verbatim_col:
+    with st.container(horizontal_alignment="right"):
+        no_verbatim = st.toggle("No verbatim", value=False, label_visibility="collapsed")
+
 keyterms_label_col, _ = st.columns([3, 1], vertical_alignment="center")
 with keyterms_label_col:
     st.markdown(
@@ -285,6 +303,7 @@ if transcribe_clicked and audio_sources:
         "translate" if translate else "transcribe",
         include_subtitles,
         initial_prompt,
+        no_verbatim,
     )
 
 _display_transcription()
