@@ -3,7 +3,7 @@ import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 from urllib.error import URLError
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 from urllib.request import urlopen
 
 import mlx_whisper
@@ -47,9 +47,9 @@ def _fetch_youtube_audio(url: str) -> tuple[bytes, str]:
 
 @st.cache_data(show_spinner="Downloading audio from URL...", max_entries=5)
 def _fetch_url_audio(url: str) -> tuple[bytes, str]:
-    with urlopen(url) as resp:
+    with urlopen(url, timeout=60) as resp:
         data = resp.read()
-    filename = Path(urlparse(url).path).name or "download"
+    filename = unquote(Path(urlparse(url).path).name) or "download"
     return data, filename
 
 

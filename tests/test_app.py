@@ -121,7 +121,7 @@ def test_fetch_url_audio_returns_bytes_and_filename(mock_urlopen):
 
     assert data == b"file bytes"
     assert filename == "audio.mp3"
-    mock_urlopen.assert_called_once_with("https://example.com/audio.mp3")
+    mock_urlopen.assert_called_once_with("https://example.com/audio.mp3", timeout=60)
 
 
 @patch("streamlit_app.urlopen")
@@ -133,6 +133,17 @@ def test_fetch_url_audio_strips_query_from_filename(mock_urlopen):
     _, filename = _fetch_url_audio("https://example.com/path/audio.wav?t=42")
 
     assert filename == "audio.wav"
+
+
+@patch("streamlit_app.urlopen")
+def test_fetch_url_audio_decodes_percent_encoded_filename(mock_urlopen):
+    mock_response = MagicMock()
+    mock_response.read.return_value = b"bytes"
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    _, filename = _fetch_url_audio("https://example.com/My%20Talk.mp3")
+
+    assert filename == "My Talk.mp3"
 
 
 @patch("streamlit_app.urlopen")
