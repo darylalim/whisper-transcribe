@@ -135,6 +135,15 @@ def _handle_transcription(
     st.session_state["transcription"] = transcriptions
 
 
+def _labeled_toggle(label: str, help: str) -> bool:
+    label_col, input_col = st.columns([3, 1], vertical_alignment="center")
+    with label_col:
+        st.markdown(label, help=help)
+    with input_col:
+        with st.container(horizontal_alignment="right"):
+            return st.toggle(label, value=False, label_visibility="collapsed")
+
+
 def _display_transcription() -> None:
     transcriptions = st.session_state.get("transcription") or []
     for i, data in enumerate(transcriptions):
@@ -225,43 +234,20 @@ with language_col:
         label_visibility="collapsed",
     )
 
-translate_label_col, translate_col = st.columns([3, 1], vertical_alignment="center")
-with translate_label_col:
-    st.markdown(
-        "Translate to English",
-        help="Translates audio to English instead of transcribing in the source language.",
-    )
-with translate_col:
-    with st.container(horizontal_alignment="right"):
-        translate = st.toggle("Translate to English", value=False, label_visibility="collapsed")
-
-subtitles_label_col, subtitles_col = st.columns([3, 1], vertical_alignment="center")
-with subtitles_label_col:
-    st.markdown(
-        "Include subtitles",
-        help=(
-            "Best for adding subtitles to a video. When enabled, the project will be "
-            "initialized with subtitles which you can then alter in the editor."
-        ),
-    )
-with subtitles_col:
-    with st.container(horizontal_alignment="right"):
-        include_subtitles = st.toggle(
-            "Include subtitles", value=False, label_visibility="collapsed"
-        )
-
-no_verbatim_label_col, no_verbatim_col = st.columns([3, 1], vertical_alignment="center")
-with no_verbatim_label_col:
-    st.markdown(
-        "No verbatim",
-        help=(
-            "When enabled, the transcription will be cleaned up by removing "
-            "filler words, false starts, and repetitions."
-        ),
-    )
-with no_verbatim_col:
-    with st.container(horizontal_alignment="right"):
-        no_verbatim = st.toggle("No verbatim", value=False, label_visibility="collapsed")
+translate = _labeled_toggle(
+    "Translate to English",
+    "Translates audio to English instead of transcribing in the source language.",
+)
+include_subtitles = _labeled_toggle(
+    "Include subtitles",
+    "Best for adding subtitles to a video. When enabled, the project will be "
+    "initialized with subtitles which you can then alter in the editor.",
+)
+no_verbatim = _labeled_toggle(
+    "No verbatim",
+    "When enabled, the transcription will be cleaned up by removing "
+    "filler words, false starts, and repetitions.",
+)
 
 keyterms_label_col, _ = st.columns([3, 1], vertical_alignment="center")
 with keyterms_label_col:

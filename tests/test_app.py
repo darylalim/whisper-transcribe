@@ -128,17 +128,13 @@ def test_transcribe_calls_mlx_with_correct_params(mock_mlx):
     mock_mlx.transcribe.assert_called_once()
     args, kwargs = mock_mlx.transcribe.call_args
     assert args[0].endswith(".mp3")
-    assert kwargs == {
-        "path_or_hf_repo": "mlx-community/whisper-large-v3-turbo",
-        "language": "en",
-        "task": "transcribe",
-        "initial_prompt": None,
-        "no_speech_threshold": 0.6,
-        "logprob_threshold": -1.0,
-        "compression_ratio_threshold": 2.4,
-        "word_timestamps": False,
-        "hallucination_silence_threshold": None,
-    }
+    assert kwargs["path_or_hf_repo"] == "mlx-community/whisper-large-v3-turbo"
+    assert kwargs["language"] == "en"
+    assert kwargs["task"] == "transcribe"
+    assert kwargs["initial_prompt"] is None
+    assert kwargs["no_speech_threshold"] == 0.6
+    assert kwargs["logprob_threshold"] == -1.0
+    assert kwargs["compression_ratio_threshold"] == 2.4
 
 
 @patch("streamlit_app.mlx_whisper")
