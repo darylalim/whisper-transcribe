@@ -157,6 +157,19 @@ def test_fetch_url_audio_falls_back_when_no_path(mock_urlopen):
     assert filename == "download"
 
 
+@patch("streamlit_app.MAX_URL_DOWNLOAD_BYTES", 10)
+@patch("streamlit_app.urlopen")
+def test_fetch_url_audio_rejects_oversized_response(mock_urlopen):
+    mock_response = MagicMock()
+    mock_response.read.return_value = b"x" * 11
+    mock_urlopen.return_value.__enter__.return_value = mock_response
+
+    with pytest.raises(RuntimeError, match="exceeds"):
+        _fetch_url_audio("https://example.com/too-big.mp3")
+
+    mock_response.read.assert_called_once_with(11)
+
+
 # --- _transcribe ---
 
 

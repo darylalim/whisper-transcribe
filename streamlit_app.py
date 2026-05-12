@@ -17,6 +17,7 @@ AUDIO_FORMATS = ("mp3", "m4a", "wav", "flac", "ogg", "aac", "mp4", "mov", "webm"
 LANGUAGE_CODES: list[str | None] = [None] + sorted(LANGUAGES, key=lambda c: LANGUAGES[c])
 YOUTUBE_URL_RE = re.compile(r"^https?://(www\.|m\.)?(youtube\.com/|youtu\.be/)", re.IGNORECASE)
 URL_RE = re.compile(r"^https?://", re.IGNORECASE)
+MAX_URL_DOWNLOAD_BYTES = 500 * 1024 * 1024
 
 
 class _RemoteAudio:
@@ -48,7 +49,9 @@ def _fetch_youtube_audio(url: str) -> tuple[bytes, str]:
 @st.cache_data(show_spinner="Downloading audio from URL...", max_entries=5)
 def _fetch_url_audio(url: str) -> tuple[bytes, str]:
     with urlopen(url, timeout=60) as resp:
-        data = resp.read()
+        data = resp.read(MAX_URL_DOWNLOAD_BYTES + 1)
+    if len(data) > MAX_URL_DOWNLOAD_BYTES:
+        raise RuntimeError(f"URL response exceeds {MAX_URL_DOWNLOAD_BYTES // (1024 * 1024)} MB")
     filename = unquote(Path(urlparse(url).path).name) or "download"
     return data, filename
 
@@ -242,15 +245,18 @@ with url_tab:
     ).strip()
     url_audio: _RemoteAudio | None = None
     if file_url and URL_RE.match(file_url):
-        try:
-            data, filename = _fetch_url_audio(file_url)
-            url_audio = _RemoteAudio(filename, data)
-            st.audio(data)
-        except URLError as e:
-            st.error(f"Could not download from URL: {e}")
-        except Exception as e:
-            st.error(f"Unexpected error: {e}")
-            st.exception(e)
+        if YOUTUBE_URL_RE.match(file_url):
+            st.info("This looks like a YouTube URL — use the YouTube tab.")
+        else:
+            try:
+                data, filename = _fetch_url_audio(file_url)
+                url_audio = _RemoteAudio(filename, data)
+                st.audio(data)
+            except (URLError, RuntimeError) as e:
+                st.error(f"Could not download from URL: {e}")
+            except Exception as e:
+                st.error(f"Unexpected error: {e}")
+                st.exception(e)
 
 language_label_col, language_col = st.columns([3, 1], vertical_alignment="center")
 with language_label_col:
