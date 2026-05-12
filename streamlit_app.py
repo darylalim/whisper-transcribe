@@ -193,7 +193,12 @@ def _display_transcription() -> None:
 
 
 # UI
-st.title("Whisper Pipeline")
+st.title("Speech to text")
+st.markdown(
+    "Transcribe audio and video files with the "
+    "[OpenAI Whisper large-v3-turbo model]"
+    "(https://huggingface.co/openai/whisper-large-v3-turbo)."
+)
 
 upload_tab, record_tab, youtube_tab, url_tab = st.tabs(["Upload", "Record", "YouTube", "URL"])
 with upload_tab:
