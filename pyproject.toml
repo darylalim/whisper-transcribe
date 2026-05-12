@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "mlx-whisper",
     "streamlit",
+    "yt-dlp",
 ]
 
 [dependency-groups]

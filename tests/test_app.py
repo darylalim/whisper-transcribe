@@ -7,10 +7,12 @@ from streamlit_app import (
     ASR_MODEL_REPO,
     AUDIO_FORMATS,
     _display_transcription,
+    _fetch_youtube_audio,
     _format_srt,
     _format_timestamp,
     _handle_transcription,
     _transcribe,
+    _YouTubeAudio,
 )
 
 MOCK_WHISPER_RESULT = {
@@ -57,6 +59,55 @@ def test_audio_formats():
         "webm",
         "mkv",
     )
+
+
+# --- _YouTubeAudio / _fetch_youtube_audio ---
+
+
+def test_youtube_audio_adapter():
+    audio = _YouTubeAudio("video.m4a", b"audio bytes")
+    assert audio.name == "video.m4a"
+    assert audio.read() == b"audio bytes"
+
+
+@patch("streamlit_app.yt_dlp")
+def test_fetch_youtube_audio_returns_bytes_and_filename(mock_yt_dlp, tmp_path):
+    fake_file = tmp_path / "Test_Video.m4a"
+    fake_file.write_bytes(b"fake youtube audio")
+
+    mock_ydl = MagicMock()
+    mock_ydl.extract_info.return_value = {"title": "Test Video"}
+    mock_ydl.prepare_filename.return_value = str(fake_file)
+    mock_yt_dlp.YoutubeDL.return_value.__enter__.return_value = mock_ydl
+
+    data, filename = _fetch_youtube_audio("https://youtube.com/watch?v=fetch_bytes")
+
+    assert data == b"fake youtube audio"
+    assert filename == "Test_Video.m4a"
+    mock_ydl.extract_info.assert_called_once_with(
+        "https://youtube.com/watch?v=fetch_bytes",
+        download=True,
+    )
+
+
+@patch("streamlit_app.yt_dlp")
+def test_fetch_youtube_audio_uses_safe_options(mock_yt_dlp, tmp_path):
+    fake_file = tmp_path / "video.webm"
+    fake_file.write_bytes(b"webm bytes")
+
+    mock_ydl = MagicMock()
+    mock_ydl.extract_info.return_value = {"title": "video"}
+    mock_ydl.prepare_filename.return_value = str(fake_file)
+    mock_yt_dlp.YoutubeDL.return_value.__enter__.return_value = mock_ydl
+
+    _fetch_youtube_audio("https://youtube.com/watch?v=safe_options")
+
+    args, _ = mock_yt_dlp.YoutubeDL.call_args
+    opts = args[0]
+    assert opts["format"] == "bestaudio/best"
+    assert opts["noplaylist"] is True
+    assert opts["restrictfilenames"] is True
+    assert opts["quiet"] is True
 
 
 # --- _transcribe ---

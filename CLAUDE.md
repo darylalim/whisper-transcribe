@@ -27,6 +27,7 @@ uv run streamlit run streamlit_app.py
 
 - `mlx-whisper` — speech recognition on Apple Silicon
 - `streamlit` — web UI
+- `yt-dlp` — YouTube audio download
 - `ffmpeg` — audio/video decoding (system dependency)
 - `ruff` — linting and formatting (dev)
 - `ty` — type checking (dev)
@@ -43,9 +44,9 @@ Direct `mlx_whisper.transcribe()` call with `ASR_MODEL_REPO = "mlx-community/whi
 
 ### Input Modes
 
-- **Upload** / **Record** tabs (`st.tabs`) — Upload accepts multiple files (`accept_multiple_files=True`) with one `st.audio` preview per file; Record takes a single recording with its own preview
+- **Upload** / **Record** / **YouTube** tabs (`st.tabs`) — Upload accepts multiple files (`accept_multiple_files=True`) with one `st.audio` preview per file; Record takes a single recording with its own preview; YouTube takes a URL (gated by a `youtube.com` / `youtu.be` regex and stripped of whitespace), downloads the best audio stream via `yt-dlp` (cached, `restrictfilenames=True`, `noplaylist=True`), and shows an `st.audio` preview of the bytes
 - Below the tabs, in order: **Primary language** selector, **Translate to English** toggle, **Include subtitles** toggle, **Keyterms** chip input (`st.multiselect` with `accept_new_options=True`, max 50 chips, joined with `, ` and forwarded as `initial_prompt`), and a right-aligned **Transcribe** button
-- The Transcribe button dispatches uploaded files when present; otherwise it wraps the recording in a single-element list. Translate maps to `task="translate"` (English output) vs `task="transcribe"` (source language). Subtitles controls both the text area's initial content (SRT-formatted segments when on, plain text when off) and the single download button rendered (`.srt` vs `.txt`); the text area is always editable
+- The Transcribe button dispatches in priority order: uploaded files → recording → YouTube audio. Each non-upload source is wrapped in a single-element list. The YouTube source is a `_YouTubeAudio` adapter exposing `.name` (yt-dlp's safe filename, including extension) and `.read()` so it flows through `_handle_transcription` without changes. Translate maps to `task="translate"` (English output) vs `task="transcribe"` (source language). Subtitles controls both the text area's initial content (SRT-formatted segments when on, plain text when off) and the single download button rendered (`.srt` vs `.txt`); the text area is always editable
 - `_transcribe` writes audio bytes to a temp file, calls `mlx_whisper.transcribe()`, and caches results (`language=None` → Whisper auto-detects)
 - `_handle_transcription` wraps the batch in `st.status(...)` (label updates to `Transcribing {name} ({i}/{total})...` per file, transitions to `complete` at the end), transcribes each upload, and stores the resulting list of `{result, file_stem, filename, include_subtitles}` dicts in `st.session_state["transcription"]`. The `file_stem` includes the source extension (e.g., `interview_mp3_transcript`) to disambiguate downloads when two uploads share a stem. Per-file errors are reported inline via `st.error` and don't stop the rest of the batch
 - `_display_transcription` renders one stacked section per stored result: `st.subheader(filename)` + an editable text area (plain text or SRT segments per `include_subtitles`) + a single download button (`.txt` or `.srt`) that captures the text area's edited content. Indexed widget keys (`transcript_{i}`, `download_{txt,srt}_{i}`) avoid collisions
@@ -70,6 +71,7 @@ mp3, m4a, wav, flac, ogg, aac, mp4, mov, webm, mkv
 - `_transcribe` — mocked `mlx_whisper`, kwarg verification (language, task, initial_prompt), defaults, temp-file cleanup, empty-text guard
 - `_handle_transcription` — session state storage as a list, per-file error handling (RuntimeError + unexpected), argument forwarding (`include_subtitles`, `initial_prompt`), multi-file batches, partial-failure scenarios
 - `_display_transcription` — filename subheader + editable text area + single download button (`.txt` when subtitles off, `.srt` when on); both buttons capture the text area's edited content; multi-file stacked rendering with indexed keys
+- `_YouTubeAudio` / `_fetch_youtube_audio` — mocked `yt_dlp`, verifies bytes + filename round-trip, `extract_info` call args, and the safe-download options (`format=bestaudio/best`, `noplaylist`, `restrictfilenames`, `quiet`)
 - Formatting helpers — `_format_timestamp` (with optional comma decimal marker), `_format_srt` (single-segment + multi-segment cue separator + `-->` escaping to `->` to keep the SRT structure intact)
 
 ## Resources
