@@ -454,11 +454,12 @@ def test_display_transcription_txt_download(mock_st):
     _display_transcription()
 
     mock_st.download_button.assert_called_once_with(
-        ".txt",
+        "Download",
         "Hello world",
         "interview_transcript.txt",
         "text/plain",
         key="download_txt_0",
+        help="Downloads as .srt when subtitles are enabled, .txt otherwise.",
         use_container_width=True,
     )
 
@@ -476,11 +477,12 @@ def test_display_transcription_srt_download(mock_st):
     _display_transcription()
 
     mock_st.download_button.assert_called_once_with(
-        ".srt",
+        "Download",
         "1\n00:00:00,000 --> 00:00:02,500\nHello world\n",
         "interview_transcript.srt",
         "application/x-subrip",
         key="download_srt_0",
+        help="Downloads as .srt when subtitles are enabled, .txt otherwise.",
         use_container_width=True,
     )
 
@@ -521,13 +523,29 @@ def test_display_transcription_download_reflects_edits(mock_st):
     _display_transcription()
 
     mock_st.download_button.assert_called_once_with(
-        ".txt",
+        "Download",
         "edited transcript text",
         "interview_transcript.txt",
         "text/plain",
         key="download_txt_0",
+        help="Downloads as .srt when subtitles are enabled, .txt otherwise.",
         use_container_width=True,
     )
+
+
+def test_display_transcription_right_aligns_download(mock_st):
+    mock_st.session_state["transcription"] = [
+        {
+            "result": MOCK_WHISPER_RESULT,
+            "file_stem": "interview_transcript",
+            "filename": "interview.mp3",
+            "include_subtitles": False,
+        }
+    ]
+
+    _display_transcription()
+
+    mock_st.columns.assert_called_once_with([3, 1])
 
 
 def test_display_transcription_multiple_files(mock_st):

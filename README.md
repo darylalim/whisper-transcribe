@@ -39,6 +39,6 @@ Optional controls:
 
 - **Primary language** — auto-detected by default
 - **Translate to English** — translate non-English audio
-- **Include subtitles** — initialize an editable SRT preview; the download button switches from `.txt` to `.srt`
+- **Include subtitles** — initialize an editable SRT preview; the **Download** button serves a `.srt` file instead of `.txt`
 - **No verbatim** — remove filler words, false starts, and repetitions
 - **Keyterms** — bias decoding toward specific terms (proper nouns, jargon)
