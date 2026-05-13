@@ -10,6 +10,7 @@ Transcribe or translate audio and video files using the Whisper large-v3-turbo m
 - **Multi-file upload** (up to 500 MB per file), **in-browser recording**, **YouTube URL** input via `yt-dlp`, and **audio/video file URL** download via `urllib`
 - **Editable subtitle preview** with `.srt` export
 - **No-verbatim mode** that removes filler words, false starts, and repetitions
+- **Independent-segment decoding** for noisy audio (each 30 s window decodes without context from earlier windows)
 - **Keyterm biasing** for proper nouns and jargon (up to 50 terms)
 - **Cached transcriptions** via `@st.cache_data`
 
@@ -41,4 +42,5 @@ Optional controls:
 - **Translate to English** — translate non-English audio
 - **Include subtitles** — initialize an editable SRT preview; the **Download** button serves a `.srt` file instead of `.txt`
 - **No verbatim** — remove filler words, false starts, and repetitions
+- **Decode segments independently** — disable prior-window context; more robust on noisy or music-heavy audio at the cost of cross-boundary fluency
 - **Keyterms** — bias decoding toward specific terms (proper nouns, jargon)

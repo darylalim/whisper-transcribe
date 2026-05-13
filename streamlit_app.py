@@ -82,10 +82,12 @@ def _format_srt(result: dict) -> str:
 def _transcribe(
     audio_bytes: bytes,
     suffix: str,
+    *,
     language: str | None = None,
     task: str = "transcribe",
     initial_prompt: str | None = None,
     no_verbatim: bool = False,
+    condition_on_previous_text: bool = True,
 ) -> dict:
     with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
         tmp.write(audio_bytes)
@@ -99,6 +101,7 @@ def _transcribe(
             no_speech_threshold=0.6,
             logprob_threshold=-1.0,
             compression_ratio_threshold=2.4,
+            condition_on_previous_text=condition_on_previous_text,
             word_timestamps=no_verbatim,
             hallucination_silence_threshold=2.0 if no_verbatim else None,
         )
@@ -109,11 +112,13 @@ def _transcribe(
 
 def _handle_transcription(
     uploaded_files: Sequence[UploadedFile | _RemoteAudio],
+    *,
     language: str | None,
     task: str,
     include_subtitles: bool,
     initial_prompt: str | None = None,
     no_verbatim: bool = False,
+    condition_on_previous_text: bool = True,
 ) -> None:
     transcriptions = []
     total = len(uploaded_files)
@@ -125,10 +130,11 @@ def _handle_transcription(
                 result = _transcribe(
                     uploaded_file.read(),
                     name.suffix,
-                    language,
-                    task,
-                    initial_prompt,
-                    no_verbatim,
+                    language=language,
+                    task=task,
+                    initial_prompt=initial_prompt,
+                    no_verbatim=no_verbatim,
+                    condition_on_previous_text=condition_on_previous_text,
                 )
                 transcriptions.append(
                     {
@@ -157,6 +163,25 @@ def _labeled_toggle(label: str, help: str) -> bool:
     with input_col:
         with st.container(horizontal_alignment="right"):
             return st.toggle(label, value=False, label_visibility="collapsed")
+
+
+def _transcription_kwargs(
+    *,
+    language: str | None,
+    translate: bool,
+    include_subtitles: bool,
+    initial_prompt: str | None,
+    no_verbatim: bool,
+    decode_independently: bool,
+) -> dict:
+    return {
+        "language": language,
+        "task": "translate" if translate else "transcribe",
+        "include_subtitles": include_subtitles,
+        "initial_prompt": initial_prompt,
+        "no_verbatim": no_verbatim,
+        "condition_on_previous_text": not decode_independently,
+    }
 
 
 def _display_transcription() -> None:
@@ -293,6 +318,11 @@ no_verbatim = _labeled_toggle(
     "When enabled, the transcription will be cleaned up by removing "
     "filler words, false starts, and repetitions.",
 )
+decode_independently = _labeled_toggle(
+    "Decode segments independently",
+    "When enabled, each 30-second window is transcribed without context "
+    "from prior windows. More robust on noisy or music-heavy audio.",
+)
 
 keyterms_label_col, _ = st.columns([3, 1], vertical_alignment="center")
 with keyterms_label_col:
@@ -331,11 +361,14 @@ with action_col:
 if transcribe_clicked and audio_sources:
     _handle_transcription(
         audio_sources,
-        language,
-        "translate" if translate else "transcribe",
-        include_subtitles,
-        initial_prompt,
-        no_verbatim,
+        **_transcription_kwargs(
+            language=language,
+            translate=translate,
+            include_subtitles=include_subtitles,
+            initial_prompt=initial_prompt,
+            no_verbatim=no_verbatim,
+            decode_independently=decode_independently,
+        ),
     )
 
 _display_transcription()
