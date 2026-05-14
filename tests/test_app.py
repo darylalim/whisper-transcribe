@@ -197,6 +197,7 @@ def test_transcribe_calls_mlx_with_correct_params(mock_mlx):
     assert kwargs["logprob_threshold"] == -1.0
     assert kwargs["compression_ratio_threshold"] == 2.4
     assert kwargs["condition_on_previous_text"] is True
+    assert kwargs["clip_timestamps"] == "0"
 
 
 @patch("streamlit_app.mlx_whisper")
@@ -278,6 +279,30 @@ def test_transcribe_disables_condition_on_previous_text(mock_mlx):
     _transcribe(b"fake audio no context", ".mp3", condition_on_previous_text=False)
     _, kwargs = mock_mlx.transcribe.call_args
     assert kwargs["condition_on_previous_text"] is False
+
+
+@patch("streamlit_app.mlx_whisper")
+def test_transcribe_defaults_clip_timestamps(mock_mlx):
+    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
+    _transcribe(b"fake audio default clips", ".mp3")
+    _, kwargs = mock_mlx.transcribe.call_args
+    assert kwargs["clip_timestamps"] == "0"
+
+
+@patch("streamlit_app.mlx_whisper")
+def test_transcribe_passes_clip_timestamps(mock_mlx):
+    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
+    _transcribe(b"fake audio clips", ".mp3", clip_timestamps="30,90")
+    _, kwargs = mock_mlx.transcribe.call_args
+    assert kwargs["clip_timestamps"] == "30,90"
+
+
+@patch("streamlit_app.mlx_whisper")
+def test_transcribe_passes_multi_clip_timestamps(mock_mlx):
+    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
+    _transcribe(b"fake audio multi clips", ".mp3", clip_timestamps="0,60,120,180")
+    _, kwargs = mock_mlx.transcribe.call_args
+    assert kwargs["clip_timestamps"] == "0,60,120,180"
 
 
 @patch("streamlit_app.mlx_whisper")
@@ -388,6 +413,7 @@ def test_handle_transcription_passes_args(mock_transcribe, mock_st, mock_uploade
         initial_prompt=None,
         no_verbatim=False,
         condition_on_previous_text=True,
+        clip_timestamps="0",
     )
 
 
@@ -408,6 +434,7 @@ def test_handle_transcription_passes_initial_prompt(mock_transcribe, mock_st, mo
         initial_prompt="Anthropic, MLX",
         no_verbatim=False,
         condition_on_previous_text=True,
+        clip_timestamps="0",
     )
 
 
@@ -428,6 +455,7 @@ def test_handle_transcription_passes_no_verbatim(mock_transcribe, mock_st, mock_
         initial_prompt=None,
         no_verbatim=True,
         condition_on_previous_text=True,
+        clip_timestamps="0",
     )
 
 
@@ -450,6 +478,28 @@ def test_handle_transcription_passes_condition_on_previous_text(
         initial_prompt=None,
         no_verbatim=False,
         condition_on_previous_text=False,
+        clip_timestamps="0",
+    )
+
+
+@patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
+def test_handle_transcription_passes_clip_timestamps(mock_transcribe, mock_st, mock_uploaded_file):
+    _handle_transcription(
+        [mock_uploaded_file],
+        language=None,
+        task="transcribe",
+        include_subtitles=False,
+        clip_timestamps="30,90",
+    )
+    mock_transcribe.assert_called_once_with(
+        b"fake audio bytes",
+        ".mp3",
+        language=None,
+        task="transcribe",
+        initial_prompt=None,
+        no_verbatim=False,
+        condition_on_previous_text=True,
+        clip_timestamps="30,90",
     )
 
 
@@ -507,6 +557,7 @@ def test_transcription_kwargs_translate_maps_to_translate_task():
         initial_prompt=None,
         no_verbatim=False,
         decode_independently=False,
+        clip_timestamps="0",
     )
     assert kwargs["task"] == "translate"
 
@@ -519,6 +570,7 @@ def test_transcription_kwargs_no_translate_maps_to_transcribe_task():
         initial_prompt=None,
         no_verbatim=False,
         decode_independently=False,
+        clip_timestamps="0",
     )
     assert kwargs["task"] == "transcribe"
 
@@ -531,6 +583,7 @@ def test_transcription_kwargs_decode_independently_disables_context():
         initial_prompt=None,
         no_verbatim=False,
         decode_independently=True,
+        clip_timestamps="0",
     )
     assert kwargs["condition_on_previous_text"] is False
 
@@ -543,6 +596,7 @@ def test_transcription_kwargs_default_keeps_context_on():
         initial_prompt=None,
         no_verbatim=False,
         decode_independently=False,
+        clip_timestamps="0",
     )
     assert kwargs["condition_on_previous_text"] is True
 
@@ -555,11 +609,13 @@ def test_transcription_kwargs_passes_through_unchanged_fields():
         initial_prompt="hello",
         no_verbatim=True,
         decode_independently=False,
+        clip_timestamps="30,90",
     )
     assert kwargs["language"] == "en"
     assert kwargs["include_subtitles"] is True
     assert kwargs["initial_prompt"] == "hello"
     assert kwargs["no_verbatim"] is True
+    assert kwargs["clip_timestamps"] == "30,90"
 
 
 # --- _display_transcription ---

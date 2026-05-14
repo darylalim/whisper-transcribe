@@ -11,6 +11,7 @@ Transcribe or translate audio and video files using the Whisper large-v3-turbo m
 - **Editable subtitle preview** with `.srt` export
 - **No-verbatim mode** that removes filler words, false starts, and repetitions
 - **Independent-segment decoding** for noisy audio (each 30 s window decodes without context from earlier windows)
+- **Time-range clipping** for partial transcription (comma-separated `start,end` pairs in seconds)
 - **Keyterm biasing** for proper nouns and jargon (up to 50 terms)
 - **Cached transcriptions** via `@st.cache_data`
 
@@ -43,4 +44,5 @@ Optional controls:
 - **Include subtitles** — initialize an editable SRT preview; the **Download** button serves a `.srt` file instead of `.txt`
 - **No verbatim** — remove filler words, false starts, and repetitions
 - **Decode segments independently** — disable prior-window context; more robust on noisy or music-heavy audio at the cost of cross-boundary fluency
+- **Time range** — transcribe only selected portions; comma-separated `start,end` pairs in seconds (e.g., `30,90` for one clip, `0,60,120,180` for multiple)
 - **Keyterms** — bias decoding toward specific terms (proper nouns, jargon)

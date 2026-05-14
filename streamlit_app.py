@@ -88,6 +88,7 @@ def _transcribe(
     initial_prompt: str | None = None,
     no_verbatim: bool = False,
     condition_on_previous_text: bool = True,
+    clip_timestamps: str = "0",
 ) -> dict:
     with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
         tmp.write(audio_bytes)
@@ -104,6 +105,7 @@ def _transcribe(
             condition_on_previous_text=condition_on_previous_text,
             word_timestamps=no_verbatim,
             hallucination_silence_threshold=2.0 if no_verbatim else None,
+            clip_timestamps=clip_timestamps,
         )
     if not result.get("text", "").strip():
         raise RuntimeError("Transcription produced no text")
@@ -119,6 +121,7 @@ def _handle_transcription(
     initial_prompt: str | None = None,
     no_verbatim: bool = False,
     condition_on_previous_text: bool = True,
+    clip_timestamps: str = "0",
 ) -> None:
     transcriptions = []
     total = len(uploaded_files)
@@ -135,6 +138,7 @@ def _handle_transcription(
                     initial_prompt=initial_prompt,
                     no_verbatim=no_verbatim,
                     condition_on_previous_text=condition_on_previous_text,
+                    clip_timestamps=clip_timestamps,
                 )
                 transcriptions.append(
                     {
@@ -173,6 +177,7 @@ def _transcription_kwargs(
     initial_prompt: str | None,
     no_verbatim: bool,
     decode_independently: bool,
+    clip_timestamps: str,
 ) -> dict:
     return {
         "language": language,
@@ -181,6 +186,7 @@ def _transcription_kwargs(
         "initial_prompt": initial_prompt,
         "no_verbatim": no_verbatim,
         "condition_on_previous_text": not decode_independently,
+        "clip_timestamps": clip_timestamps,
     }
 
 
@@ -324,6 +330,25 @@ decode_independently = _labeled_toggle(
     "from prior windows. More robust on noisy or music-heavy audio.",
 )
 
+time_range_label_col, _ = st.columns([3, 1], vertical_alignment="center")
+with time_range_label_col:
+    st.markdown(
+        "Time range",
+        help=(
+            'Comma-separated start,end pairs in seconds (e.g., "30,90" for a '
+            'single clip, "0,60,120,180" for multiple clips). Leave blank to '
+            "transcribe the full file."
+        ),
+    )
+clip_timestamps = (
+    st.text_input(
+        "Time range",
+        placeholder="e.g., 30,90 — leave blank for full file",
+        label_visibility="collapsed",
+    ).strip()
+    or "0"
+)
+
 keyterms_label_col, _ = st.columns([3, 1], vertical_alignment="center")
 with keyterms_label_col:
     st.markdown(
@@ -368,6 +393,7 @@ if transcribe_clicked and audio_sources:
             initial_prompt=initial_prompt,
             no_verbatim=no_verbatim,
             decode_independently=decode_independently,
+            clip_timestamps=clip_timestamps,
         ),
     )
 
