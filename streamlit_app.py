@@ -206,28 +206,18 @@ def _display_transcription() -> None:
             label_visibility="collapsed",
             key=f"transcript_{i}",
         )
+        ext, mime = ("srt", "application/x-subrip") if include_subtitles else ("txt", "text/plain")
         _, download_col = st.columns([3, 1])
         with download_col:
-            if include_subtitles:
-                st.download_button(
-                    "Download",
-                    transcript,
-                    data["file_stem"] + ".srt",
-                    "application/x-subrip",
-                    key=f"download_srt_{i}",
-                    help="Downloads as .srt when subtitles are enabled, .txt otherwise.",
-                    use_container_width=True,
-                )
-            else:
-                st.download_button(
-                    "Download",
-                    transcript,
-                    data["file_stem"] + ".txt",
-                    "text/plain",
-                    key=f"download_txt_{i}",
-                    help="Downloads as .srt when subtitles are enabled, .txt otherwise.",
-                    use_container_width=True,
-                )
+            st.download_button(
+                "Download",
+                transcript,
+                f"{data['file_stem']}.{ext}",
+                mime,
+                key=f"download_{ext}_{i}",
+                help="Downloads as .srt when subtitles are enabled, .txt otherwise.",
+                use_container_width=True,
+            )
 
 
 # UI
