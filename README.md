@@ -4,7 +4,7 @@ Transcribe or translate audio and video files using the OpenAI Whisper large-v3-
 
 ## Features
 
-- **Whisper large-v3-turbo** via [mlx-whisper](https://pypi.org/project/mlx-whisper/), accelerated on Apple Silicon
+- **OpenAI Whisper large-v3-turbo** via [mlx-whisper](https://pypi.org/project/mlx-whisper/), accelerated on Apple Silicon
 - **99-language transcription** with auto-detect or manual selection
 - **Translate non-English audio to English**
 - **Multi-file upload** (up to 500 MB per file), **in-browser recording**, **YouTube URL** input via `yt-dlp`, and **audio/video file URL** download via `urllib`
