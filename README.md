@@ -1,6 +1,6 @@
 # Whisper Pipeline
 
-Transcribe or translate audio and video files using the Whisper large-v3-turbo model on Apple Silicon.
+Transcribe or translate audio and video files using the OpenAI Whisper large-v3-turbo model on Apple Silicon with MLX.
 
 ## Features
 
