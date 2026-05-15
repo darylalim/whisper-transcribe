@@ -9,6 +9,7 @@ from streamlit_app import (
     _display_transcription,
     _fetch_url_audio,
     _fetch_youtube_audio,
+    _format_language,
     _format_srt,
     _format_timestamp,
     _handle_transcription,
@@ -39,6 +40,106 @@ MOCK_WHISPER_RESULT = {
     ],
     "language": "en",
 }
+
+SRT_HELLO = "1\n00:00:00,000 --> 00:00:02,500\nHello world\n"
+
+
+# --- Helpers ---
+
+
+def _make_file(name="interview.mp3", data=b"fake audio bytes"):
+    f = MagicMock()
+    f.name = name
+    f.read.return_value = data
+    return f
+
+
+def _stub_urlopen(mock_urlopen, data):
+    response = MagicMock()
+    response.read.return_value = data
+    mock_urlopen.return_value.__enter__.return_value = response
+    return response
+
+
+def _stub_ytdlp(mock_yt_dlp, path, title="Test"):
+    ydl = MagicMock()
+    ydl.extract_info.return_value = {"title": title}
+    ydl.prepare_filename.return_value = str(path)
+    mock_yt_dlp.YoutubeDL.return_value.__enter__.return_value = ydl
+    return ydl
+
+
+def _make_transcription(
+    include_subtitles=False, file_stem="interview_transcript", filename="interview.mp3"
+):
+    return {
+        "result": MOCK_WHISPER_RESULT,
+        "file_stem": file_stem,
+        "filename": filename,
+        "include_subtitles": include_subtitles,
+    }
+
+
+def _expected_transcribe_kwargs(**overrides):
+    base = {
+        "language": None,
+        "task": "transcribe",
+        "initial_prompt": None,
+        "no_verbatim": False,
+        "condition_on_previous_text": True,
+        "clip_timestamps": "0",
+    }
+    return base | overrides
+
+
+def _handle_transcription_kwargs(**overrides):
+    return {"language": None, "task": "transcribe", "include_subtitles": False} | overrides
+
+
+def _ui_state(**overrides):
+    base = {
+        "language": None,
+        "translate": False,
+        "include_subtitles": False,
+        "initial_prompt": None,
+        "no_verbatim": False,
+        "decode_independently": False,
+        "clip_timestamps": "0",
+    }
+    return base | overrides
+
+
+# --- Fixtures ---
+
+
+@pytest.fixture(autouse=True)
+def _clear_caches():
+    _transcribe.clear()
+    _fetch_youtube_audio.clear()
+    _fetch_url_audio.clear()
+
+
+@pytest.fixture
+def mock_mlx():
+    with patch("streamlit_app.mlx_whisper") as m:
+        m.transcribe.return_value = MOCK_WHISPER_RESULT
+        yield m
+
+
+@pytest.fixture
+def mock_uploaded_file():
+    return _make_file()
+
+
+@pytest.fixture
+def mock_st():
+    with patch("streamlit_app.st") as m:
+        m.session_state = {}
+        m.columns.side_effect = lambda spec, **_: [
+            MagicMock() for _ in range(spec if isinstance(spec, int) else len(spec))
+        ]
+        m.text_area.side_effect = lambda label, value, **_: value
+        yield m
 
 
 # --- Constants ---
@@ -76,17 +177,13 @@ def test_remote_audio_adapter():
 def test_fetch_youtube_audio_returns_bytes_and_filename(mock_yt_dlp, tmp_path):
     fake_file = tmp_path / "Test_Video.m4a"
     fake_file.write_bytes(b"fake youtube audio")
-
-    mock_ydl = MagicMock()
-    mock_ydl.extract_info.return_value = {"title": "Test Video"}
-    mock_ydl.prepare_filename.return_value = str(fake_file)
-    mock_yt_dlp.YoutubeDL.return_value.__enter__.return_value = mock_ydl
+    ydl = _stub_ytdlp(mock_yt_dlp, fake_file, title="Test Video")
 
     data, filename = _fetch_youtube_audio("https://youtube.com/watch?v=fetch_bytes")
 
     assert data == b"fake youtube audio"
     assert filename == "Test_Video.m4a"
-    mock_ydl.extract_info.assert_called_once_with(
+    ydl.extract_info.assert_called_once_with(
         "https://youtube.com/watch?v=fetch_bytes",
         download=True,
     )
@@ -96,16 +193,11 @@ def test_fetch_youtube_audio_returns_bytes_and_filename(mock_yt_dlp, tmp_path):
 def test_fetch_youtube_audio_uses_safe_options(mock_yt_dlp, tmp_path):
     fake_file = tmp_path / "video.webm"
     fake_file.write_bytes(b"webm bytes")
-
-    mock_ydl = MagicMock()
-    mock_ydl.extract_info.return_value = {"title": "video"}
-    mock_ydl.prepare_filename.return_value = str(fake_file)
-    mock_yt_dlp.YoutubeDL.return_value.__enter__.return_value = mock_ydl
+    _stub_ytdlp(mock_yt_dlp, fake_file, title="video")
 
     _fetch_youtube_audio("https://youtube.com/watch?v=safe_options")
 
-    args, _ = mock_yt_dlp.YoutubeDL.call_args
-    opts = args[0]
+    opts = mock_yt_dlp.YoutubeDL.call_args.args[0]
     assert opts["format"] == "bestaudio/best"
     assert opts["noplaylist"] is True
     assert opts["restrictfilenames"] is True
@@ -114,9 +206,7 @@ def test_fetch_youtube_audio_uses_safe_options(mock_yt_dlp, tmp_path):
 
 @patch("streamlit_app.urlopen")
 def test_fetch_url_audio_returns_bytes_and_filename(mock_urlopen):
-    mock_response = MagicMock()
-    mock_response.read.return_value = b"file bytes"
-    mock_urlopen.return_value.__enter__.return_value = mock_response
+    _stub_urlopen(mock_urlopen, b"file bytes")
 
     data, filename = _fetch_url_audio("https://example.com/audio.mp3")
 
@@ -125,202 +215,98 @@ def test_fetch_url_audio_returns_bytes_and_filename(mock_urlopen):
     mock_urlopen.assert_called_once_with("https://example.com/audio.mp3", timeout=60)
 
 
+@pytest.mark.parametrize(
+    "url,expected_filename",
+    [
+        ("https://example.com/path/audio.wav?t=42", "audio.wav"),
+        ("https://example.com/My%20Talk.mp3", "My Talk.mp3"),
+        ("https://example.com/", "download"),
+    ],
+    ids=["strips_query", "decodes_percent", "fallback_when_no_path"],
+)
 @patch("streamlit_app.urlopen")
-def test_fetch_url_audio_strips_query_from_filename(mock_urlopen):
-    mock_response = MagicMock()
-    mock_response.read.return_value = b"bytes"
-    mock_urlopen.return_value.__enter__.return_value = mock_response
-
-    _, filename = _fetch_url_audio("https://example.com/path/audio.wav?t=42")
-
-    assert filename == "audio.wav"
-
-
-@patch("streamlit_app.urlopen")
-def test_fetch_url_audio_decodes_percent_encoded_filename(mock_urlopen):
-    mock_response = MagicMock()
-    mock_response.read.return_value = b"bytes"
-    mock_urlopen.return_value.__enter__.return_value = mock_response
-
-    _, filename = _fetch_url_audio("https://example.com/My%20Talk.mp3")
-
-    assert filename == "My Talk.mp3"
-
-
-@patch("streamlit_app.urlopen")
-def test_fetch_url_audio_falls_back_when_no_path(mock_urlopen):
-    mock_response = MagicMock()
-    mock_response.read.return_value = b"bytes"
-    mock_urlopen.return_value.__enter__.return_value = mock_response
-
-    _, filename = _fetch_url_audio("https://example.com/")
-
-    assert filename == "download"
+def test_fetch_url_audio_filename(mock_urlopen, url, expected_filename):
+    _stub_urlopen(mock_urlopen, b"bytes")
+    _, filename = _fetch_url_audio(url)
+    assert filename == expected_filename
 
 
 @patch("streamlit_app.MAX_URL_DOWNLOAD_BYTES", 10)
 @patch("streamlit_app.urlopen")
 def test_fetch_url_audio_rejects_oversized_response(mock_urlopen):
-    mock_response = MagicMock()
-    mock_response.read.return_value = b"x" * 11
-    mock_urlopen.return_value.__enter__.return_value = mock_response
+    response = _stub_urlopen(mock_urlopen, b"x" * 11)
 
     with pytest.raises(RuntimeError, match="exceeds"):
         _fetch_url_audio("https://example.com/too-big.mp3")
 
-    mock_response.read.assert_called_once_with(11)
+    response.read.assert_called_once_with(11)
 
 
 # --- _transcribe ---
 
 
-@patch("streamlit_app.mlx_whisper")
 def test_transcribe_success(mock_mlx):
-    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
     result = _transcribe(b"fake audio", ".mp3")
     assert result["text"] == "Hello world"
     assert len(result["segments"]) == 1
 
 
-@patch("streamlit_app.mlx_whisper")
 def test_transcribe_calls_mlx_with_correct_params(mock_mlx):
-    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
     _transcribe(b"fake audio params", ".mp3", language="en", task="transcribe")
-    mock_mlx.transcribe.assert_called_once()
-    args, kwargs = mock_mlx.transcribe.call_args
-    assert args[0].endswith(".mp3")
-    assert kwargs["path_or_hf_repo"] == "mlx-community/whisper-large-v3-turbo"
-    assert kwargs["language"] == "en"
-    assert kwargs["task"] == "transcribe"
-    assert kwargs["initial_prompt"] is None
-    assert kwargs["no_speech_threshold"] == 0.6
-    assert kwargs["logprob_threshold"] == -1.0
-    assert kwargs["compression_ratio_threshold"] == 2.4
-    assert kwargs["condition_on_previous_text"] is True
-    assert kwargs["clip_timestamps"] == "0"
+    call = mock_mlx.transcribe.call_args
+    assert call.args[0].endswith(".mp3")
+    assert call.kwargs["path_or_hf_repo"] == "mlx-community/whisper-large-v3-turbo"
+    assert call.kwargs["language"] == "en"
+    assert call.kwargs["task"] == "transcribe"
+    assert call.kwargs["no_speech_threshold"] == 0.6
+    assert call.kwargs["logprob_threshold"] == -1.0
+    assert call.kwargs["compression_ratio_threshold"] == 2.4
 
 
-@patch("streamlit_app.mlx_whisper")
-def test_transcribe_defaults_language_to_none(mock_mlx):
-    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
-    _transcribe(b"fake audio default lang", ".mp3")
-    _, kwargs = mock_mlx.transcribe.call_args
+def test_transcribe_defaults(mock_mlx):
+    _transcribe(b"fake audio defaults", ".mp3")
+    kwargs = mock_mlx.transcribe.call_args.kwargs
     assert kwargs["language"] is None
-
-
-@patch("streamlit_app.mlx_whisper")
-def test_transcribe_defaults_task_to_transcribe(mock_mlx):
-    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
-    _transcribe(b"fake audio default task", ".mp3")
-    _, kwargs = mock_mlx.transcribe.call_args
     assert kwargs["task"] == "transcribe"
-
-
-@patch("streamlit_app.mlx_whisper")
-def test_transcribe_passes_translate_task(mock_mlx):
-    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
-    _transcribe(b"fake audio translate", ".mp3", language="fr", task="translate")
-    _, kwargs = mock_mlx.transcribe.call_args
-    assert kwargs["task"] == "translate"
-    assert kwargs["language"] == "fr"
-
-
-@patch("streamlit_app.mlx_whisper")
-def test_transcribe_defaults_initial_prompt_to_none(mock_mlx):
-    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
-    _transcribe(b"fake audio default prompt", ".mp3")
-    _, kwargs = mock_mlx.transcribe.call_args
     assert kwargs["initial_prompt"] is None
-
-
-@patch("streamlit_app.mlx_whisper")
-def test_transcribe_passes_initial_prompt(mock_mlx):
-    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
-    _transcribe(
-        b"fake audio prompt",
-        ".mp3",
-        language="en",
-        task="transcribe",
-        initial_prompt="Anthropic, MLX",
-    )
-    _, kwargs = mock_mlx.transcribe.call_args
-    assert kwargs["initial_prompt"] == "Anthropic, MLX"
-
-
-@patch("streamlit_app.mlx_whisper")
-def test_transcribe_defaults_no_verbatim_off(mock_mlx):
-    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
-    _transcribe(b"fake audio no verbatim default", ".mp3")
-    _, kwargs = mock_mlx.transcribe.call_args
     assert kwargs["word_timestamps"] is False
     assert kwargs["hallucination_silence_threshold"] is None
-
-
-@patch("streamlit_app.mlx_whisper")
-def test_transcribe_no_verbatim_enables_hallucination_skip(mock_mlx):
-    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
-    _transcribe(b"fake audio no verbatim on", ".mp3", no_verbatim=True)
-    _, kwargs = mock_mlx.transcribe.call_args
-    assert kwargs["word_timestamps"] is True
-    assert kwargs["hallucination_silence_threshold"] == 2.0
-
-
-@patch("streamlit_app.mlx_whisper")
-def test_transcribe_defaults_condition_on_previous_text_on(mock_mlx):
-    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
-    _transcribe(b"fake audio default context", ".mp3")
-    _, kwargs = mock_mlx.transcribe.call_args
     assert kwargs["condition_on_previous_text"] is True
-
-
-@patch("streamlit_app.mlx_whisper")
-def test_transcribe_disables_condition_on_previous_text(mock_mlx):
-    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
-    _transcribe(b"fake audio no context", ".mp3", condition_on_previous_text=False)
-    _, kwargs = mock_mlx.transcribe.call_args
-    assert kwargs["condition_on_previous_text"] is False
-
-
-@patch("streamlit_app.mlx_whisper")
-def test_transcribe_defaults_clip_timestamps(mock_mlx):
-    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
-    _transcribe(b"fake audio default clips", ".mp3")
-    _, kwargs = mock_mlx.transcribe.call_args
     assert kwargs["clip_timestamps"] == "0"
 
 
-@patch("streamlit_app.mlx_whisper")
-def test_transcribe_passes_clip_timestamps(mock_mlx):
-    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
-    _transcribe(b"fake audio clips", ".mp3", clip_timestamps="30,90")
-    _, kwargs = mock_mlx.transcribe.call_args
-    assert kwargs["clip_timestamps"] == "30,90"
+@pytest.mark.parametrize(
+    "call_kwargs,expected",
+    [
+        ({"language": "fr", "task": "translate"}, {"task": "translate", "language": "fr"}),
+        ({"initial_prompt": "Anthropic, MLX"}, {"initial_prompt": "Anthropic, MLX"}),
+        ({"no_verbatim": True}, {"word_timestamps": True, "hallucination_silence_threshold": 2.0}),
+        ({"condition_on_previous_text": False}, {"condition_on_previous_text": False}),
+        ({"clip_timestamps": "30,90"}, {"clip_timestamps": "30,90"}),
+        ({"clip_timestamps": "0,60,120,180"}, {"clip_timestamps": "0,60,120,180"}),
+    ],
+    ids=["translate", "initial_prompt", "no_verbatim", "no_context", "single_clip", "multi_clip"],
+)
+def test_transcribe_forwards_kwargs(mock_mlx, call_kwargs, expected):
+    _transcribe(b"audio", ".mp3", **call_kwargs)
+    kwargs = mock_mlx.transcribe.call_args.kwargs
+    assert {k: kwargs[k] for k in expected} == expected
 
 
-@patch("streamlit_app.mlx_whisper")
-def test_transcribe_passes_multi_clip_timestamps(mock_mlx):
-    mock_mlx.transcribe.return_value = MOCK_WHISPER_RESULT
-    _transcribe(b"fake audio multi clips", ".mp3", clip_timestamps="0,60,120,180")
-    _, kwargs = mock_mlx.transcribe.call_args
-    assert kwargs["clip_timestamps"] == "0,60,120,180"
-
-
-@patch("streamlit_app.mlx_whisper")
 def test_transcribe_no_text_raises(mock_mlx):
     mock_mlx.transcribe.return_value = {"text": "   ", "segments": [], "language": "en"}
     with pytest.raises(RuntimeError, match="no text"):
         _transcribe(b"fake audio empty", ".mp3")
 
 
-@patch("streamlit_app.mlx_whisper")
 def test_transcribe_cleans_up_temp_file(mock_mlx):
     called_paths = []
 
-    def capture_path(path, **kwargs):
+    def capture(path, **_):
         called_paths.append(path)
         return MOCK_WHISPER_RESULT
 
-    mock_mlx.transcribe.side_effect = capture_path
+    mock_mlx.transcribe.side_effect = capture
     _transcribe(b"fake audio cleanup", ".mp3")
     assert len(called_paths) == 1
     assert not Path(called_paths[0]).exists()
@@ -329,32 +315,12 @@ def test_transcribe_cleans_up_temp_file(mock_mlx):
 # --- _handle_transcription ---
 
 
-@pytest.fixture
-def mock_uploaded_file():
-    uploaded = MagicMock()
-    uploaded.name = "interview.mp3"
-    uploaded.read.return_value = b"fake audio bytes"
-    return uploaded
-
-
-@pytest.fixture
-def mock_st():
-    with patch("streamlit_app.st") as m:
-        m.session_state = {}
-        m.columns.side_effect = lambda spec, **_: [
-            MagicMock() for _ in range(spec if isinstance(spec, int) else len(spec))
-        ]
-        m.text_area.side_effect = lambda label, value, **_: value
-        yield m
-
-
 @patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
 def test_handle_transcription_stores_result(mock_transcribe, mock_st, mock_uploaded_file):
     _handle_transcription(
         [mock_uploaded_file], language=None, task="transcribe", include_subtitles=False
     )
 
-    assert "transcription" in mock_st.session_state
     transcriptions = mock_st.session_state["transcription"]
     assert len(transcriptions) == 1
     data = transcriptions[0]
@@ -371,19 +337,14 @@ def test_handle_transcription_stores_include_subtitles_true(
     _handle_transcription(
         [mock_uploaded_file], language=None, task="transcribe", include_subtitles=True
     )
-    data = mock_st.session_state["transcription"][0]
-    assert data["include_subtitles"] is True
+    assert mock_st.session_state["transcription"][0]["include_subtitles"] is True
 
 
-@patch(
-    "streamlit_app._transcribe",
-    side_effect=RuntimeError("Transcription produced no text"),
-)
+@patch("streamlit_app._transcribe", side_effect=RuntimeError("Transcription produced no text"))
 def test_handle_transcription_runtime_error(mock_transcribe, mock_st, mock_uploaded_file):
     _handle_transcription(
         [mock_uploaded_file], language=None, task="transcribe", include_subtitles=False
     )
-
     mock_st.error.assert_called_once_with(
         "Transcription failed for interview.mp3: Transcription produced no text"
     )
@@ -395,124 +356,46 @@ def test_handle_transcription_unexpected_error(mock_transcribe, mock_st, mock_up
     _handle_transcription(
         [mock_uploaded_file], language=None, task="transcribe", include_subtitles=False
     )
-
     mock_st.error.assert_called_once_with("Unexpected error for interview.mp3: unexpected")
     mock_st.exception.assert_called_once()
 
 
+@pytest.mark.parametrize(
+    "ui_kwargs,expected_overrides",
+    [
+        (
+            _handle_transcription_kwargs(language="fr", task="translate", include_subtitles=True),
+            {"language": "fr", "task": "translate"},
+        ),
+        (
+            _handle_transcription_kwargs(initial_prompt="Anthropic, MLX"),
+            {"initial_prompt": "Anthropic, MLX"},
+        ),
+        (_handle_transcription_kwargs(no_verbatim=True), {"no_verbatim": True}),
+        (
+            _handle_transcription_kwargs(condition_on_previous_text=False),
+            {"condition_on_previous_text": False},
+        ),
+        (_handle_transcription_kwargs(clip_timestamps="30,90"), {"clip_timestamps": "30,90"}),
+    ],
+    ids=["translate", "initial_prompt", "no_verbatim", "no_context", "clip"],
+)
 @patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
-def test_handle_transcription_passes_args(mock_transcribe, mock_st, mock_uploaded_file):
-    _handle_transcription(
-        [mock_uploaded_file], language="fr", task="translate", include_subtitles=True
-    )
-    mock_transcribe.assert_called_once_with(
-        b"fake audio bytes",
-        ".mp3",
-        language="fr",
-        task="translate",
-        initial_prompt=None,
-        no_verbatim=False,
-        condition_on_previous_text=True,
-        clip_timestamps="0",
-    )
-
-
-@patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
-def test_handle_transcription_passes_initial_prompt(mock_transcribe, mock_st, mock_uploaded_file):
-    _handle_transcription(
-        [mock_uploaded_file],
-        language=None,
-        task="transcribe",
-        include_subtitles=False,
-        initial_prompt="Anthropic, MLX",
-    )
-    mock_transcribe.assert_called_once_with(
-        b"fake audio bytes",
-        ".mp3",
-        language=None,
-        task="transcribe",
-        initial_prompt="Anthropic, MLX",
-        no_verbatim=False,
-        condition_on_previous_text=True,
-        clip_timestamps="0",
-    )
-
-
-@patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
-def test_handle_transcription_passes_no_verbatim(mock_transcribe, mock_st, mock_uploaded_file):
-    _handle_transcription(
-        [mock_uploaded_file],
-        language=None,
-        task="transcribe",
-        include_subtitles=False,
-        no_verbatim=True,
-    )
-    mock_transcribe.assert_called_once_with(
-        b"fake audio bytes",
-        ".mp3",
-        language=None,
-        task="transcribe",
-        initial_prompt=None,
-        no_verbatim=True,
-        condition_on_previous_text=True,
-        clip_timestamps="0",
-    )
-
-
-@patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
-def test_handle_transcription_passes_condition_on_previous_text(
-    mock_transcribe, mock_st, mock_uploaded_file
+def test_handle_transcription_forwards_kwargs(
+    mock_transcribe, mock_st, mock_uploaded_file, ui_kwargs, expected_overrides
 ):
-    _handle_transcription(
-        [mock_uploaded_file],
-        language=None,
-        task="transcribe",
-        include_subtitles=False,
-        condition_on_previous_text=False,
-    )
+    _handle_transcription([mock_uploaded_file], **ui_kwargs)
     mock_transcribe.assert_called_once_with(
         b"fake audio bytes",
         ".mp3",
-        language=None,
-        task="transcribe",
-        initial_prompt=None,
-        no_verbatim=False,
-        condition_on_previous_text=False,
-        clip_timestamps="0",
-    )
-
-
-@patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
-def test_handle_transcription_passes_clip_timestamps(mock_transcribe, mock_st, mock_uploaded_file):
-    _handle_transcription(
-        [mock_uploaded_file],
-        language=None,
-        task="transcribe",
-        include_subtitles=False,
-        clip_timestamps="30,90",
-    )
-    mock_transcribe.assert_called_once_with(
-        b"fake audio bytes",
-        ".mp3",
-        language=None,
-        task="transcribe",
-        initial_prompt=None,
-        no_verbatim=False,
-        condition_on_previous_text=True,
-        clip_timestamps="30,90",
+        **_expected_transcribe_kwargs(**expected_overrides),
     )
 
 
 @patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
 def test_handle_transcription_multiple_files(mock_transcribe, mock_st):
-    file1 = MagicMock()
-    file1.name = "first.mp3"
-    file1.read.return_value = b"first audio"
-    file2 = MagicMock()
-    file2.name = "second.mp3"
-    file2.read.return_value = b"second audio"
-
-    _handle_transcription([file1, file2], language=None, task="transcribe", include_subtitles=False)
+    files = [_make_file("first.mp3", b"first audio"), _make_file("second.mp3", b"second audio")]
+    _handle_transcription(files, language=None, task="transcribe", include_subtitles=False)
 
     transcriptions = mock_st.session_state["transcription"]
     assert len(transcriptions) == 2
@@ -528,12 +411,7 @@ def test_handle_transcription_partial_failure(mock_transcribe, mock_st):
         RuntimeError("Transcription produced no text"),
         MOCK_WHISPER_RESULT,
     ]
-    files = []
-    for stem in ("first", "second", "third"):
-        f = MagicMock()
-        f.name = f"{stem}.mp3"
-        f.read.return_value = b"bytes"
-        files.append(f)
+    files = [_make_file(f"{stem}.mp3") for stem in ("first", "second", "third")]
 
     _handle_transcription(files, language=None, task="transcribe", include_subtitles=False)
 
@@ -549,67 +427,30 @@ def test_handle_transcription_partial_failure(mock_transcribe, mock_st):
 # --- _transcription_kwargs ---
 
 
-def test_transcription_kwargs_translate_maps_to_translate_task():
-    kwargs = _transcription_kwargs(
-        language="fr",
-        translate=True,
-        include_subtitles=False,
-        initial_prompt=None,
-        no_verbatim=False,
-        decode_independently=False,
-        clip_timestamps="0",
-    )
-    assert kwargs["task"] == "translate"
-
-
-def test_transcription_kwargs_no_translate_maps_to_transcribe_task():
-    kwargs = _transcription_kwargs(
-        language="fr",
-        translate=False,
-        include_subtitles=False,
-        initial_prompt=None,
-        no_verbatim=False,
-        decode_independently=False,
-        clip_timestamps="0",
-    )
-    assert kwargs["task"] == "transcribe"
-
-
-def test_transcription_kwargs_decode_independently_disables_context():
-    kwargs = _transcription_kwargs(
-        language=None,
-        translate=False,
-        include_subtitles=False,
-        initial_prompt=None,
-        no_verbatim=False,
-        decode_independently=True,
-        clip_timestamps="0",
-    )
-    assert kwargs["condition_on_previous_text"] is False
-
-
-def test_transcription_kwargs_default_keeps_context_on():
-    kwargs = _transcription_kwargs(
-        language=None,
-        translate=False,
-        include_subtitles=False,
-        initial_prompt=None,
-        no_verbatim=False,
-        decode_independently=False,
-        clip_timestamps="0",
-    )
-    assert kwargs["condition_on_previous_text"] is True
+@pytest.mark.parametrize(
+    "overrides,expected",
+    [
+        ({"translate": True, "language": "fr"}, {"task": "translate"}),
+        ({"translate": False, "language": "fr"}, {"task": "transcribe"}),
+        ({"decode_independently": True}, {"condition_on_previous_text": False}),
+        ({"decode_independently": False}, {"condition_on_previous_text": True}),
+    ],
+    ids=["translate_on", "translate_off", "no_context", "with_context"],
+)
+def test_transcription_kwargs_mappings(overrides, expected):
+    kwargs = _transcription_kwargs(**_ui_state(**overrides))
+    assert {k: kwargs[k] for k in expected} == expected
 
 
 def test_transcription_kwargs_passes_through_unchanged_fields():
     kwargs = _transcription_kwargs(
-        language="en",
-        translate=False,
-        include_subtitles=True,
-        initial_prompt="hello",
-        no_verbatim=True,
-        decode_independently=False,
-        clip_timestamps="30,90",
+        **_ui_state(
+            language="en",
+            include_subtitles=True,
+            initial_prompt="hello",
+            no_verbatim=True,
+            clip_timestamps="30,90",
+        )
     )
     assert kwargs["language"] == "en"
     assert kwargs["include_subtitles"] is True
@@ -623,19 +464,11 @@ def test_transcription_kwargs_passes_through_unchanged_fields():
 
 def test_display_transcription_no_session_state(mock_st):
     _display_transcription()
-
     mock_st.text_area.assert_not_called()
 
 
 def test_display_transcription_shows_transcript(mock_st):
-    mock_st.session_state["transcription"] = [
-        {
-            "result": MOCK_WHISPER_RESULT,
-            "file_stem": "interview_transcript",
-            "filename": "interview.mp3",
-            "include_subtitles": False,
-        }
-    ]
+    mock_st.session_state["transcription"] = [_make_transcription()]
 
     _display_transcription()
 
@@ -650,14 +483,7 @@ def test_display_transcription_shows_transcript(mock_st):
 
 
 def test_display_transcription_txt_download(mock_st):
-    mock_st.session_state["transcription"] = [
-        {
-            "result": MOCK_WHISPER_RESULT,
-            "file_stem": "interview_transcript",
-            "filename": "interview.mp3",
-            "include_subtitles": False,
-        }
-    ]
+    mock_st.session_state["transcription"] = [_make_transcription()]
 
     _display_transcription()
 
@@ -673,20 +499,13 @@ def test_display_transcription_txt_download(mock_st):
 
 
 def test_display_transcription_srt_download(mock_st):
-    mock_st.session_state["transcription"] = [
-        {
-            "result": MOCK_WHISPER_RESULT,
-            "file_stem": "interview_transcript",
-            "filename": "interview.mp3",
-            "include_subtitles": True,
-        }
-    ]
+    mock_st.session_state["transcription"] = [_make_transcription(include_subtitles=True)]
 
     _display_transcription()
 
     mock_st.download_button.assert_called_once_with(
         "Download",
-        "1\n00:00:00,000 --> 00:00:02,500\nHello world\n",
+        SRT_HELLO,
         "interview_transcript.srt",
         "application/x-subrip",
         key="download_srt_0",
@@ -696,20 +515,13 @@ def test_display_transcription_srt_download(mock_st):
 
 
 def test_display_transcription_subtitles_on(mock_st):
-    mock_st.session_state["transcription"] = [
-        {
-            "result": MOCK_WHISPER_RESULT,
-            "file_stem": "interview_transcript",
-            "filename": "interview.mp3",
-            "include_subtitles": True,
-        }
-    ]
+    mock_st.session_state["transcription"] = [_make_transcription(include_subtitles=True)]
 
     _display_transcription()
 
     mock_st.text_area.assert_called_once_with(
         "Transcript",
-        "1\n00:00:00,000 --> 00:00:02,500\nHello world\n",
+        SRT_HELLO,
         height=300,
         label_visibility="collapsed",
         key="transcript_0",
@@ -719,14 +531,7 @@ def test_display_transcription_subtitles_on(mock_st):
 
 def test_display_transcription_download_reflects_edits(mock_st):
     mock_st.text_area.side_effect = lambda label, value, **_: "edited transcript text"
-    mock_st.session_state["transcription"] = [
-        {
-            "result": MOCK_WHISPER_RESULT,
-            "file_stem": "interview_transcript",
-            "filename": "interview.mp3",
-            "include_subtitles": False,
-        }
-    ]
+    mock_st.session_state["transcription"] = [_make_transcription()]
 
     _display_transcription()
 
@@ -742,34 +547,15 @@ def test_display_transcription_download_reflects_edits(mock_st):
 
 
 def test_display_transcription_right_aligns_download(mock_st):
-    mock_st.session_state["transcription"] = [
-        {
-            "result": MOCK_WHISPER_RESULT,
-            "file_stem": "interview_transcript",
-            "filename": "interview.mp3",
-            "include_subtitles": False,
-        }
-    ]
-
+    mock_st.session_state["transcription"] = [_make_transcription()]
     _display_transcription()
-
     mock_st.columns.assert_called_once_with([3, 1])
 
 
 def test_display_transcription_multiple_files(mock_st):
     mock_st.session_state["transcription"] = [
-        {
-            "result": MOCK_WHISPER_RESULT,
-            "file_stem": "first_transcript",
-            "filename": "first.mp3",
-            "include_subtitles": False,
-        },
-        {
-            "result": MOCK_WHISPER_RESULT,
-            "file_stem": "second_transcript",
-            "filename": "second.mp3",
-            "include_subtitles": False,
-        },
+        _make_transcription(file_stem="first_transcript", filename="first.mp3"),
+        _make_transcription(file_stem="second_transcript", filename="second.mp3"),
     ]
 
     _display_transcription()
@@ -784,24 +570,31 @@ def test_display_transcription_multiple_files(mock_st):
 # --- formatting helpers ---
 
 
-def test_format_timestamp_zero():
-    assert _format_timestamp(0.0) == "00:00:00.000"
+@pytest.mark.parametrize(
+    "code,expected",
+    [(None, "Detect"), ("en", "English"), ("fr", "French")],
+    ids=["none_returns_detect", "lowercase_code", "title_cased"],
+)
+def test_format_language(code, expected):
+    assert _format_language(code) == expected
 
 
-def test_format_timestamp_minutes_and_seconds():
-    assert _format_timestamp(65.5) == "00:01:05.500"
-
-
-def test_format_timestamp_hours():
-    assert _format_timestamp(3661.123) == "01:01:01.123"
-
-
-def test_format_timestamp_with_comma_decimal_marker():
-    assert _format_timestamp(65.5, decimal_marker=",") == "00:01:05,500"
+@pytest.mark.parametrize(
+    "seconds,decimal_marker,expected",
+    [
+        (0.0, ".", "00:00:00.000"),
+        (65.5, ".", "00:01:05.500"),
+        (3661.123, ".", "01:01:01.123"),
+        (65.5, ",", "00:01:05,500"),
+    ],
+    ids=["zero", "minutes_seconds", "hours", "comma_marker"],
+)
+def test_format_timestamp(seconds, decimal_marker, expected):
+    assert _format_timestamp(seconds, decimal_marker=decimal_marker) == expected
 
 
 def test_format_srt():
-    assert _format_srt(MOCK_WHISPER_RESULT) == ("1\n00:00:00,000 --> 00:00:02,500\nHello world\n")
+    assert _format_srt(MOCK_WHISPER_RESULT) == SRT_HELLO
 
 
 def test_format_srt_multiple_segments():
