@@ -2,6 +2,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from streamlit.testing.v1 import AppTest
 
 from streamlit_app import (
     ASR_MODEL_REPO,
@@ -619,3 +620,55 @@ def test_format_srt_escapes_arrow():
         ]
     }
     assert _format_srt(result) == "1\n00:00:00,000 --> 00:00:02,500\nbefore -> after\n"
+
+
+# --- module UI (AppTest) ---
+#
+# These exercise the module-level UI (page config, tabs, buttons, fragment) by
+# running the real script through Streamlit's AppTest runtime, complementing the
+# mocked-`st` unit tests above.
+
+
+def _run_app(transcription=None):
+    at = AppTest.from_file("streamlit_app.py", default_timeout=30)
+    if transcription is not None:
+        at.session_state["transcription"] = transcription
+    return at.run()
+
+
+def test_app_renders_without_exception():
+    at = _run_app()
+    assert not at.exception
+    assert [t.value for t in at.title] == ["Speech to text"]
+
+
+def test_tabs_have_material_icon_labels():
+    at = _run_app()
+    assert [t.label for t in at.tabs] == [
+        ":material/upload: Upload",
+        ":material/mic: Record",
+        ":material/smart_display: YouTube",
+        ":material/link: URL",
+    ]
+
+
+def test_transcribe_button_has_icon_and_is_disabled_without_audio():
+    button = _run_app().button[0]
+    assert button.label == "Transcribe"
+    assert button.icon == ":material/graphic_eq:"
+    assert button.disabled is True
+
+
+def test_results_render_download_button_with_icon():
+    # Seeded results render through the st.fragment(_display_transcription)() wrap.
+    at = _run_app([_make_transcription()])
+    assert not at.exception
+    assert [s.value for s in at.subheader] == ["interview.mp3"]
+    assert at.text_area[0].value == "Hello world"
+    download = at.get("download_button")[0]
+    assert download.label == "Download"
+    assert download.icon == ":material/download:"
+
+
+def test_no_results_renders_no_download_button():
+    assert _run_app().get("download_button") == []
