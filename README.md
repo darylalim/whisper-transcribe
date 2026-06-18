@@ -14,6 +14,7 @@ Transcribe or translate audio and video files using the OpenAI Whisper large-v3-
 - **Time-range clipping** for partial transcription (comma-separated `start,end` pairs in seconds)
 - **Keyterm biasing** for proper nouns and jargon (up to 50 terms)
 - **Cached transcriptions** via `@st.cache_data`
+- **Light & dark theme** with Material Symbol icons, switchable in the app's settings menu
 
 ## Requirements
 

@@ -28,7 +28,7 @@ When working with Python, invoke the relevant `/astral:<skill>` for uv, ty, and 
 ## Dependencies
 
 - `mlx-whisper` — speech recognition on Apple Silicon
-- `streamlit` — web UI
+- `streamlit` — web UI (≥1.58 for `width="stretch"`, `st.fragment`, light/dark theme, and `AppTest`)
 - `yt-dlp` — YouTube audio download
 - `ffmpeg` — audio/video decoding (system dependency)
 - `ruff` — linting and formatting (dev)

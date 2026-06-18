@@ -1,11 +1,11 @@
 [project]
 name = "whisper-transcribe"
-version = "0.8.3"
+version = "0.9.0"
 description = "Transcribe or translate audio and video files using the OpenAI Whisper large-v3-turbo model on Apple Silicon with MLX."
 requires-python = ">=3.12"
 dependencies = [
     "mlx-whisper",
-    "streamlit",
+    "streamlit>=1.58",
     "yt-dlp",
 ]
 
