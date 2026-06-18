@@ -214,13 +214,19 @@ def _display_transcription() -> None:
                 transcript,
                 f"{data['file_stem']}.{ext}",
                 mime,
+                icon=":material/download:",
                 key=f"download_{ext}_{i}",
                 help="Downloads as .srt when subtitles are enabled, .txt otherwise.",
-                use_container_width=True,
+                width="stretch",
             )
 
 
 # UI
+st.set_page_config(
+    page_title="Speech to text",
+    page_icon=":material/graphic_eq:",
+    layout="centered",
+)
 st.title("Speech to text")
 st.markdown(
     "Transcribe audio and video files with the "
@@ -228,7 +234,14 @@ st.markdown(
     "(https://huggingface.co/openai/whisper-large-v3-turbo)."
 )
 
-upload_tab, record_tab, youtube_tab, url_tab = st.tabs(["Upload", "Record", "YouTube", "URL"])
+upload_tab, record_tab, youtube_tab, url_tab = st.tabs(
+    [
+        ":material/upload: Upload",
+        ":material/mic: Record",
+        ":material/smart_display: YouTube",
+        ":material/link: URL",
+    ]
+)
 with upload_tab:
     uploaded_files = st.file_uploader(
         "Upload audio file",
@@ -368,9 +381,10 @@ _, action_col = st.columns([3, 1])
 with action_col:
     transcribe_clicked = st.button(
         "Transcribe",
+        icon=":material/graphic_eq:",
         type="primary",
         disabled=not audio_sources,
-        use_container_width=True,
+        width="stretch",
     )
 
 if transcribe_clicked and audio_sources:
@@ -387,4 +401,6 @@ if transcribe_clicked and audio_sources:
         ),
     )
 
-_display_transcription()
+# Wrapped in a fragment so transcript edits/downloads rerun only this section
+# instead of the whole script (which re-evaluates all four input tabs).
+st.fragment(_display_transcription)()

@@ -492,9 +492,10 @@ def test_display_transcription_txt_download(mock_st):
         "Hello world",
         "interview_transcript.txt",
         "text/plain",
+        icon=":material/download:",
         key="download_txt_0",
         help="Downloads as .srt when subtitles are enabled, .txt otherwise.",
-        use_container_width=True,
+        width="stretch",
     )
 
 
@@ -508,9 +509,10 @@ def test_display_transcription_srt_download(mock_st):
         SRT_HELLO,
         "interview_transcript.srt",
         "application/x-subrip",
+        icon=":material/download:",
         key="download_srt_0",
         help="Downloads as .srt when subtitles are enabled, .txt otherwise.",
-        use_container_width=True,
+        width="stretch",
     )
 
 
@@ -540,9 +542,10 @@ def test_display_transcription_download_reflects_edits(mock_st):
         "edited transcript text",
         "interview_transcript.txt",
         "text/plain",
+        icon=":material/download:",
         key="download_txt_0",
         help="Downloads as .srt when subtitles are enabled, .txt otherwise.",
-        use_container_width=True,
+        width="stretch",
     )
 
 
