@@ -2,6 +2,7 @@ import re
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 from urllib.error import URLError
 from urllib.parse import unquote, urlparse
 from urllib.request import urlopen
@@ -18,6 +19,11 @@ LANGUAGE_CODES: list[str | None] = [None] + sorted(LANGUAGES, key=lambda c: LANG
 YOUTUBE_URL_RE = re.compile(r"^https?://(www\.|m\.)?(youtube\.com/|youtu\.be/)", re.IGNORECASE)
 URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 MAX_URL_DOWNLOAD_BYTES = 500 * 1024 * 1024
+PAGE_CONFIG: dict[str, Any] = {
+    "page_title": "Speech to text",
+    "page_icon": ":material/graphic_eq:",
+    "layout": "centered",
+}
 
 
 class _RemoteAudio:
@@ -222,11 +228,7 @@ def _display_transcription() -> None:
 
 
 # UI
-st.set_page_config(
-    page_title="Speech to text",
-    page_icon=":material/graphic_eq:",
-    layout="centered",
-)
+st.set_page_config(**PAGE_CONFIG)
 st.title("Speech to text")
 st.markdown(
     "Transcribe audio and video files with the "

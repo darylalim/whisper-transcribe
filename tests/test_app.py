@@ -7,6 +7,7 @@ from streamlit.testing.v1 import AppTest
 from streamlit_app import (
     ASR_MODEL_REPO,
     AUDIO_FORMATS,
+    PAGE_CONFIG,
     _display_transcription,
     _fetch_url_audio,
     _fetch_youtube_audio,
@@ -629,11 +630,22 @@ def test_format_srt_escapes_arrow():
 # mocked-`st` unit tests above.
 
 
+APP_PATH = Path(__file__).resolve().parent.parent / "streamlit_app.py"
+
+
 def _run_app(transcription=None):
-    at = AppTest.from_file("streamlit_app.py", default_timeout=30)
+    at = AppTest.from_file(str(APP_PATH), default_timeout=5)
     if transcription is not None:
         at.session_state["transcription"] = transcription
     return at.run()
+
+
+def test_page_config():
+    assert PAGE_CONFIG == {
+        "page_title": "Speech to text",
+        "page_icon": ":material/graphic_eq:",
+        "layout": "centered",
+    }
 
 
 def test_app_renders_without_exception():

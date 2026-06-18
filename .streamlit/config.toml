@@ -9,10 +9,8 @@ font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;60
 codeFont = "'JetBrains Mono':https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
 baseFontSize = 14
 baseRadius = "8px"
-buttonRadius = "8px"
 linkUnderline = false
 headingFontWeights = [600, 600, 600, 500, 500, 500]
-chartCategoricalColors = ["#6366f1", "#8b5cf6", "#ec4899", "#14b8a6", "#f59e0b", "#ef4444", "#22c55e"]
 
 [theme.light]
 primaryColor = "#6366f1"

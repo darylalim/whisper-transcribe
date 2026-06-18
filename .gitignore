@@ -5,7 +5,6 @@
 .pytest_cache/
 .ruff_cache/
 .streamlit/secrets.toml
-.ty_cache/
 .venv/
 .worktrees/
 __pycache__/
