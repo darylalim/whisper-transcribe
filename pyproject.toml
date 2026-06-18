@@ -1,5 +1,5 @@
 [project]
-name = "whisper-pipeline"
+name = "whisper-transcribe"
 version = "0.8.3"
 description = "Transcribe or translate audio and video files using the OpenAI Whisper large-v3-turbo model on Apple Silicon with MLX."
 requires-python = ">=3.12"
