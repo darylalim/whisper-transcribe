@@ -84,6 +84,20 @@ def _format_srt(result: dict) -> str:
     )
 
 
+_MARKDOWN_ESCAPE_RE = re.compile(r"([\\`*_~\[\]:$])")
+
+
+def _escape_markdown(text: str) -> str:
+    """Backslash-escape characters Streamlit's label-subset Markdown interprets.
+
+    st.subheader renders the Markdown label subset, so a filename containing *, _,
+    backticks, brackets, or : (emoji/Material-icon directives) — common in YouTube
+    titles and underscored names — would otherwise mis-render. Escaping keeps the
+    displayed name literal.
+    """
+    return _MARKDOWN_ESCAPE_RE.sub(r"\\\1", text)
+
+
 @st.cache_data(show_spinner=False, max_entries=20)
 def _transcribe(
     audio_bytes: bytes,
@@ -204,7 +218,7 @@ def _display_transcription() -> None:
             initial = _format_srt(data["result"])
         else:
             initial = data["result"]["text"].strip()
-        st.subheader(data["filename"])
+        st.subheader(_escape_markdown(data["filename"]))
         transcript = st.text_area(
             "Transcript",
             initial,
@@ -230,7 +244,7 @@ def _display_transcription() -> None:
 # UI
 st.set_page_config(**PAGE_CONFIG)
 st.title("Speech to text")
-st.markdown(
+st.caption(
     "Transcribe audio and video files with the "
     "[OpenAI Whisper large-v3-turbo model]"
     "(https://huggingface.co/openai/whisper-large-v3-turbo)."

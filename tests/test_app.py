@@ -9,6 +9,7 @@ from streamlit_app import (
     AUDIO_FORMATS,
     PAGE_CONFIG,
     _display_transcription,
+    _escape_markdown,
     _fetch_url_audio,
     _fetch_youtube_audio,
     _format_language,
@@ -572,6 +573,14 @@ def test_display_transcription_multiple_files(mock_st):
     mock_st.subheader.assert_any_call("second.mp3")
 
 
+def test_display_transcription_escapes_filename_in_subheader(mock_st):
+    mock_st.session_state["transcription"] = [_make_transcription(filename="my_song [live].mp3")]
+
+    _display_transcription()
+
+    mock_st.subheader.assert_called_once_with(r"my\_song \[live\].mp3")
+
+
 # --- formatting helpers ---
 
 
@@ -621,6 +630,21 @@ def test_format_srt_escapes_arrow():
         ]
     }
     assert _format_srt(result) == "1\n00:00:00,000 --> 00:00:02,500\nbefore -> after\n"
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("interview.mp3", "interview.mp3"),
+        ("interview_part_1.mp3", r"interview\_part\_1.mp3"),
+        ("Song [Official Video].mp3", r"Song \[Official Video\].mp3"),
+        ("a*b`c~d:e$f", r"a\*b\`c\~d\:e\$f"),
+        (r"back\slash", r"back\\slash"),
+    ],
+    ids=["plain", "underscores", "brackets", "all_specials", "backslash"],
+)
+def test_escape_markdown(raw, expected):
+    assert _escape_markdown(raw) == expected
 
 
 # --- module UI (AppTest) ---
