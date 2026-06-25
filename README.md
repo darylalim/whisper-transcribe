@@ -47,3 +47,7 @@ Optional controls:
 - **Decode segments independently** — disable prior-window context; more robust on noisy or music-heavy audio at the cost of cross-boundary fluency
 - **Time range** — transcribe only selected portions; comma-separated `start,end` pairs in seconds (e.g., `30,90` for one clip, `0,60,120,180` for multiple)
 - **Keyterms** — bias decoding toward specific terms (proper nouns, jargon)
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
