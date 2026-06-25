@@ -306,10 +306,6 @@ with upload_tab:
         type=AUDIO_FORMATS + VIDEO_FORMATS,
         label_visibility="collapsed",
         accept_multiple_files=True,
-        help=(
-            f"Audio: {', '.join(f.upper() for f in AUDIO_FORMATS)}\n\n"
-            f"Video: {', '.join(f.upper() for f in VIDEO_FORMATS)}"
-        ),
     )
     for uploaded_file in uploaded_files:
         st.audio(uploaded_file)
