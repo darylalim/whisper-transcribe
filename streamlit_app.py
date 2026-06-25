@@ -404,7 +404,7 @@ with st.expander("Advanced options", icon=":material/tune:"):
         )
     time_range_input = st.text_input(
         "Time range",
-        placeholder="e.g., 30,90 — leave blank for full file",
+        placeholder="e.g., 30,90 (leave blank for full file)",
         label_visibility="collapsed",
     ).strip()
     time_range_error = _validate_time_range(time_range_input)
