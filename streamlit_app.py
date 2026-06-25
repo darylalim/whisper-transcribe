@@ -14,7 +14,28 @@ from mlx_whisper.tokenizer import LANGUAGES
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 ASR_MODEL_REPO = "mlx-community/whisper-large-v3-turbo"
-AUDIO_FORMATS = ("mp3", "m4a", "wav", "flac", "ogg", "aac", "mp4", "mov", "webm", "mkv")
+AUDIO_FORMATS = (
+    "aac",
+    "aiff",
+    "aif",
+    "ogg",
+    "mp3",
+    "opus",
+    "wav",
+    "flac",
+    "m4a",
+    "mp4",
+    "avi",
+    "mkv",
+    "mov",
+    "wmv",
+    "flv",
+    "webm",
+    "mpeg",
+    "mpg",
+    "3gpp",
+    "3gp",
+)
 LANGUAGE_CODES: list[str | None] = [None] + sorted(LANGUAGES, key=lambda c: LANGUAGES[c])
 YOUTUBE_URL_RE = re.compile(r"^https?://(www\.|m\.)?(youtube\.com/|youtu\.be/)", re.IGNORECASE)
 URL_RE = re.compile(r"^https?://", re.IGNORECASE)

@@ -154,16 +154,26 @@ def test_asr_model_repo():
 
 def test_audio_formats():
     assert AUDIO_FORMATS == (
+        "aac",
+        "aiff",
+        "aif",
+        "ogg",
         "mp3",
-        "m4a",
+        "opus",
         "wav",
         "flac",
-        "ogg",
-        "aac",
+        "m4a",
         "mp4",
-        "mov",
-        "webm",
+        "avi",
         "mkv",
+        "mov",
+        "wmv",
+        "flv",
+        "webm",
+        "mpeg",
+        "mpg",
+        "3gpp",
+        "3gp",
     )
 
 

@@ -59,7 +59,7 @@ Direct `mlx_whisper.transcribe()` call with `ASR_MODEL_REPO = "mlx-community/whi
 
 ### Audio Formats
 
-mp3, m4a, wav, flac, ogg, aac, mp4, mov, webm, mkv
+aac, aiff, aif, ogg, mp3, opus, wav, flac, m4a, mp4, avi, mkv, mov, wmv, flv, webm, mpeg, mpg, 3gpp, 3gp
 
 ### Upload Limit
 
