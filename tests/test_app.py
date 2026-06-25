@@ -20,6 +20,7 @@ from streamlit_app import (
     _RemoteAudio,
     _transcribe,
     _transcription_kwargs,
+    _validate_time_range,
 )
 
 MOCK_WHISPER_RESULT = {
@@ -658,6 +659,33 @@ def test_format_srt_escapes_arrow():
 )
 def test_escape_markdown(raw, expected):
     assert _escape_markdown(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["", "30,90", "0,60,120,180", " 30 , 90 ", "0,0.5", "1.5,2"],
+    ids=["blank", "single", "multi", "whitespace", "decimal_start", "decimal_pair"],
+)
+def test_validate_time_range_valid(raw):
+    assert _validate_time_range(raw) is None
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["abc", "30,abc", "30", "30,60,90", "-5,10", "90,30", "30,30", "30,"],
+    ids=[
+        "non_numeric",
+        "non_numeric_pair",
+        "odd_single",
+        "odd_triple",
+        "negative",
+        "end_before_start",
+        "equal_pair",
+        "trailing_comma",
+    ],
+)
+def test_validate_time_range_invalid(raw):
+    assert _validate_time_range(raw) is not None
 
 
 # --- module UI (AppTest) ---

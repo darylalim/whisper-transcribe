@@ -118,6 +118,33 @@ def _escape_markdown(text: str) -> str:
     return _MARKDOWN_ESCAPE_RE.sub(r"\\\1", text)
 
 
+def _validate_time_range(raw: str) -> str | None:
+    """Return an error message if the time-range string is malformed, else None.
+
+    Valid forms: blank (full file) or comma-separated start,end pairs of
+    non-negative seconds with end > start (e.g. "30,90" or "0,60,120,180").
+    Mirrors how clip_timestamps is forwarded to mlx_whisper.transcribe.
+    """
+    if not raw:
+        return None
+    values: list[float] = []
+    for token in raw.split(","):
+        token = token.strip()
+        try:
+            value = float(token)
+        except ValueError:
+            return f"Invalid time range: {token!r} is not a number."
+        if value < 0:
+            return "Time range values must be non-negative."
+        values.append(value)
+    if len(values) % 2 != 0:
+        return "Time range must contain start,end pairs (an even number of values)."
+    for start, end in zip(values[::2], values[1::2]):
+        if end <= start:
+            return f"Time range end ({end:g}) must be greater than start ({start:g})."
+    return None
+
+
 @st.cache_data(show_spinner=False, max_entries=20)
 def _transcribe(
     audio_bytes: bytes,
@@ -375,14 +402,15 @@ with st.expander("Advanced options", icon=":material/tune:"):
                 "transcribe the full file."
             ),
         )
-    clip_timestamps = (
-        st.text_input(
-            "Time range",
-            placeholder="e.g., 30,90 — leave blank for full file",
-            label_visibility="collapsed",
-        ).strip()
-        or "0"
-    )
+    time_range_input = st.text_input(
+        "Time range",
+        placeholder="e.g., 30,90 — leave blank for full file",
+        label_visibility="collapsed",
+    ).strip()
+    time_range_error = _validate_time_range(time_range_input)
+    if time_range_error:
+        st.error(time_range_error, icon=":material/error:")
+    clip_timestamps = time_range_input or "0"
 
     keyterms_label_col, _ = st.columns([3, 1], vertical_alignment="center")
     with keyterms_label_col:
@@ -415,11 +443,11 @@ with action_col:
         "Transcribe",
         icon=":material/graphic_eq:",
         type="primary",
-        disabled=not audio_sources,
+        disabled=not audio_sources or bool(time_range_error),
         width="stretch",
     )
 
-if transcribe_clicked and audio_sources:
+if transcribe_clicked and audio_sources and not time_range_error:
     _handle_transcription(
         audio_sources,
         **_transcription_kwargs(
