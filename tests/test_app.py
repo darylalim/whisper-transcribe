@@ -729,6 +729,12 @@ def test_tabs_have_material_icon_labels():
     ]
 
 
+def test_file_uploader_help_lists_grouped_formats():
+    uploader = _run_app().get("file_uploader")[0]
+    assert ", ".join(f.upper() for f in AUDIO_FORMATS) in uploader.help
+    assert ", ".join(f.upper() for f in VIDEO_FORMATS) in uploader.help
+
+
 def test_transcribe_button_has_icon_and_is_disabled_without_audio():
     button = _run_app().button[0]
     assert button.label == "Transcribe"
