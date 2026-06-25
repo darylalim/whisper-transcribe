@@ -8,6 +8,7 @@ from streamlit_app import (
     ASR_MODEL_REPO,
     AUDIO_FORMATS,
     PAGE_CONFIG,
+    VIDEO_FORMATS,
     _display_transcription,
     _escape_markdown,
     _fetch_url_audio,
@@ -162,6 +163,11 @@ def test_audio_formats():
         "wav",
         "flac",
         "m4a",
+    )
+
+
+def test_video_formats():
+    assert VIDEO_FORMATS == (
         "mp4",
         "avi",
         "mkv",

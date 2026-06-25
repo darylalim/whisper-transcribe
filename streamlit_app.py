@@ -15,7 +15,6 @@ from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 ASR_MODEL_REPO = "mlx-community/whisper-large-v3-turbo"
 AUDIO_FORMATS = (
-    # audio
     "aac",
     "aiff",
     "ogg",
@@ -24,7 +23,8 @@ AUDIO_FORMATS = (
     "wav",
     "flac",
     "m4a",
-    # video
+)
+VIDEO_FORMATS = (
     "mp4",
     "avi",
     "mkv",
@@ -276,7 +276,7 @@ upload_tab, record_tab, youtube_tab, url_tab = st.tabs(
 with upload_tab:
     uploaded_files = st.file_uploader(
         "Upload audio file",
-        type=AUDIO_FORMATS,
+        type=AUDIO_FORMATS + VIDEO_FORMATS,
         label_visibility="collapsed",
         accept_multiple_files=True,
     )
