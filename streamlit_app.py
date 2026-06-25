@@ -244,11 +244,6 @@ def _display_transcription() -> None:
 # UI
 st.set_page_config(**PAGE_CONFIG)
 st.title("Whisper Transcribe")
-st.caption(
-    "Transcribe audio and video files with the "
-    "[OpenAI Whisper large-v3-turbo model]"
-    "(https://huggingface.co/openai/whisper-large-v3-turbo)."
-)
 
 upload_tab, record_tab, youtube_tab, url_tab = st.tabs(
     [
