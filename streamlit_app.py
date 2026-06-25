@@ -358,49 +358,50 @@ no_verbatim = _labeled_toggle(
     "When enabled, the transcription will be cleaned up by removing "
     "filler words, false starts, and repetitions.",
 )
-decode_independently = _labeled_toggle(
-    "Decode segments independently",
-    "When enabled, each 30-second window is transcribed without context "
-    "from prior windows. More robust on noisy or music-heavy audio.",
-)
-
-time_range_label_col, _ = st.columns([3, 1], vertical_alignment="center")
-with time_range_label_col:
-    st.markdown(
-        "Time range",
-        help=(
-            'Comma-separated start,end pairs in seconds (e.g., "30,90" for a '
-            'single clip, "0,60,120,180" for multiple clips). Leave blank to '
-            "transcribe the full file."
-        ),
+with st.expander("Advanced options", icon=":material/tune:"):
+    decode_independently = _labeled_toggle(
+        "Decode segments independently",
+        "When enabled, each 30-second window is transcribed without context "
+        "from prior windows. More robust on noisy or music-heavy audio.",
     )
-clip_timestamps = (
-    st.text_input(
-        "Time range",
-        placeholder="e.g., 30,90 — leave blank for full file",
-        label_visibility="collapsed",
-    ).strip()
-    or "0"
-)
 
-keyterms_label_col, _ = st.columns([3, 1], vertical_alignment="center")
-with keyterms_label_col:
-    st.markdown(
+    time_range_label_col, _ = st.columns([3, 1], vertical_alignment="center")
+    with time_range_label_col:
+        st.markdown(
+            "Time range",
+            help=(
+                'Comma-separated start,end pairs in seconds (e.g., "30,90" for a '
+                'single clip, "0,60,120,180" for multiple clips). Leave blank to '
+                "transcribe the full file."
+            ),
+        )
+    clip_timestamps = (
+        st.text_input(
+            "Time range",
+            placeholder="e.g., 30,90 — leave blank for full file",
+            label_visibility="collapsed",
+        ).strip()
+        or "0"
+    )
+
+    keyterms_label_col, _ = st.columns([3, 1], vertical_alignment="center")
+    with keyterms_label_col:
+        st.markdown(
+            "Keyterms",
+            help=(
+                "Up to 50 keyterms to be boosted during transcription. "
+                "Boosted terms are more likely to appear in the output."
+            ),
+        )
+    keyterms = st.multiselect(
         "Keyterms",
-        help=(
-            "Up to 50 keyterms to be boosted during transcription. "
-            "Boosted terms are more likely to appear in the output."
-        ),
+        options=[],
+        accept_new_options=True,
+        max_selections=50,
+        placeholder="Add keyterms...",
+        label_visibility="collapsed",
     )
-keyterms = st.multiselect(
-    "Keyterms",
-    options=[],
-    accept_new_options=True,
-    max_selections=50,
-    placeholder="Add keyterms...",
-    label_visibility="collapsed",
-)
-initial_prompt = ", ".join(keyterms) or None
+    initial_prompt = ", ".join(keyterms) or None
 
 audio_sources = (
     uploaded_files
