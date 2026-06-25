@@ -36,7 +36,7 @@ uv sync
 uv run streamlit run streamlit_app.py
 ```
 
-Upload one or more files (`aac, aiff, aif, ogg, mp3, opus, wav, flac, m4a, mp4, avi, mkv, mov, wmv, flv, webm, mpeg, mpg, 3gpp, 3gp`), record audio in-browser, paste a YouTube URL, or paste an audio/video file URL, then click **Transcribe**.
+Upload one or more files (audio: `aac, aiff, ogg, mp3, opus, wav, flac, m4a`; video: `mp4, avi, mkv, mov, wmv, flv, webm, mpeg, 3gpp`), record audio in-browser, paste a YouTube URL, or paste an audio/video file URL, then click **Transcribe**.
 
 Optional controls:
 

@@ -15,15 +15,16 @@ from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 ASR_MODEL_REPO = "mlx-community/whisper-large-v3-turbo"
 AUDIO_FORMATS = (
+    # audio
     "aac",
     "aiff",
-    "aif",
     "ogg",
     "mp3",
     "opus",
     "wav",
     "flac",
     "m4a",
+    # video
     "mp4",
     "avi",
     "mkv",
@@ -32,9 +33,7 @@ AUDIO_FORMATS = (
     "flv",
     "webm",
     "mpeg",
-    "mpg",
     "3gpp",
-    "3gp",
 )
 LANGUAGE_CODES: list[str | None] = [None] + sorted(LANGUAGES, key=lambda c: LANGUAGES[c])
 YOUTUBE_URL_RE = re.compile(r"^https?://(www\.|m\.)?(youtube\.com/|youtu\.be/)", re.IGNORECASE)

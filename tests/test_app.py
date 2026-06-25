@@ -156,7 +156,6 @@ def test_audio_formats():
     assert AUDIO_FORMATS == (
         "aac",
         "aiff",
-        "aif",
         "ogg",
         "mp3",
         "opus",
@@ -171,9 +170,7 @@ def test_audio_formats():
         "flv",
         "webm",
         "mpeg",
-        "mpg",
         "3gpp",
-        "3gp",
     )
 
 
