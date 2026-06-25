@@ -666,7 +666,7 @@ def _run_app(transcription=None):
 
 def test_page_config():
     assert PAGE_CONFIG == {
-        "page_title": "Speech to text",
+        "page_title": "Whisper Transcribe",
         "page_icon": ":material/graphic_eq:",
         "layout": "centered",
     }
@@ -675,7 +675,7 @@ def test_page_config():
 def test_app_renders_without_exception():
     at = _run_app()
     assert not at.exception
-    assert [t.value for t in at.title] == ["Speech to text"]
+    assert [t.value for t in at.title] == ["Whisper Transcribe"]
 
 
 def test_tabs_have_material_icon_labels():

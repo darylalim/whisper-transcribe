@@ -20,7 +20,7 @@ YOUTUBE_URL_RE = re.compile(r"^https?://(www\.|m\.)?(youtube\.com/|youtu\.be/)",
 URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 MAX_URL_DOWNLOAD_BYTES = 500 * 1024 * 1024
 PAGE_CONFIG: dict[str, Any] = {
-    "page_title": "Speech to text",
+    "page_title": "Whisper Transcribe",
     "page_icon": ":material/graphic_eq:",
     "layout": "centered",
 }
@@ -243,7 +243,7 @@ def _display_transcription() -> None:
 
 # UI
 st.set_page_config(**PAGE_CONFIG)
-st.title("Speech to text")
+st.title("Whisper Transcribe")
 st.caption(
     "Transcribe audio and video files with the "
     "[OpenAI Whisper large-v3-turbo model]"
