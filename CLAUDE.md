@@ -20,6 +20,11 @@ When working with Python, invoke the relevant `/astral:<skill>` for uv, ty, and 
 
 When changing the Streamlit UI (tabs, widgets, theme, layout, caching, fragments), invoke the `developing-with-streamlit` skill to stay version-correct against the pinned `streamlit>=1.58`.
 
+## Automation
+
+- **Hooks** (`.claude/settings.json`, checked in): a `PostToolUse` hook runs `ruff format` + `ruff check --fix` on edited `*.py` files; a `Stop` hook gates on `ty check` + `pytest`, feeding failures back for repair (guarded against re-engage loops via `stop_hook_active`). Personal overrides live in the gitignored `.claude/settings.local.json`
+- **CI** (`.github/workflows/ci.yml`): runs `ruff check` + `ruff format --check` + `ty check` + `pytest` on push to `main` and on PRs. Pinned to a **`macos-14` (Apple Silicon) runner** — required because `mlx-whisper` ships no Linux wheels, so `uv sync` can't resolve on Linux. Uses `uv sync --locked` and a SHA-pinned `astral-sh/setup-uv` with caching
+
 ## Code Style
 
 - snake_case for functions/variables, PascalCase for classes
