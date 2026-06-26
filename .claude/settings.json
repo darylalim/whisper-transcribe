@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in *.py) cd \"$CLAUDE_PROJECT_DIR\" && uv run ruff format \"$f\" && uv run ruff check --fix \"$f\";; esac > /dev/null 2>&1 || true",
+            "timeout": 60,
+            "statusMessage": "ruff format + lint"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat); [ \"$(printf '%s' \"$input\" | jq -r '.stop_hook_active // false')\" = true ] && exit 0; cd \"$CLAUDE_PROJECT_DIR\" || exit 0; out=$(uv run ty check 2>&1 && uv run pytest -q 2>&1) || printf '%s' \"$out\" | jq -Rs '{decision:\"block\",reason:(\"ty check or pytest failed - fix before finishing:\\n\"+.)}'",
+            "timeout": 120,
+            "statusMessage": "ty check + pytest"
+          }
+        ]
+      }
+    ]
+  }
+}
