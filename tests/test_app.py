@@ -736,6 +736,18 @@ def test_transcribe_button_has_icon_and_is_disabled_without_audio():
     assert button.disabled is True
 
 
+def test_invalid_time_range_shows_inline_error():
+    at = _run_app()
+    next(t for t in at.text_input if t.label == "Time range").set_value("90,30").run()
+    assert [e.value for e in at.error] == [_validate_time_range("90,30")]
+
+
+def test_valid_time_range_shows_no_error():
+    at = _run_app()
+    next(t for t in at.text_input if t.label == "Time range").set_value("30,90").run()
+    assert at.error == []
+
+
 def test_results_render_download_button_with_icon():
     # Seeded results render through the st.fragment(_display_transcription)() wrap.
     at = _run_app([_make_transcription()])
