@@ -121,15 +121,17 @@ def _escape_markdown(text: str) -> str:
 def _validate_time_range(raw: str) -> str | None:
     """Return an error message if the time-range string is malformed, else None.
 
-    Valid forms: blank (full file) or comma-separated start,end pairs of
-    non-negative seconds with end > start (e.g. "30,90" or "0,60,120,180").
-    Mirrors how clip_timestamps is forwarded to mlx_whisper.transcribe.
+    Valid forms: blank (full file) or comma-separated non-negative seconds where
+    each complete start,end pair has end > start (e.g. "30,90" or "0,60,120,180").
+    A trailing unpaired value is a start that runs to the end of the file (e.g.
+    "30" or "0,60,120"), matching mlx_whisper.transcribe's clip_timestamps.
     """
     if not raw:
         return None
     values: list[float] = []
-    for token in raw.split(","):
-        token = token.strip()
+    for token in (t.strip() for t in raw.split(",")):
+        if not token:
+            return "Time range has an empty value (check for a stray comma)."
         try:
             value = float(token)
         except ValueError:
@@ -137,11 +139,12 @@ def _validate_time_range(raw: str) -> str | None:
         if value < 0:
             return "Time range values must be non-negative."
         values.append(value)
-    if len(values) % 2 != 0:
-        return "Time range must contain start,end pairs (an even number of values)."
     for start, end in zip(values[::2], values[1::2]):
         if end <= start:
             return f"Time range end ({end:g}) must be greater than start ({start:g})."
+    for prev, cur in zip(values, values[1:]):
+        if cur < prev:
+            return "Time range values must be in increasing order."
     return None
 
 
@@ -408,8 +411,6 @@ with st.expander("Advanced options", icon=":material/tune:"):
         label_visibility="collapsed",
     ).strip()
     time_range_error = _validate_time_range(time_range_input)
-    if time_range_error:
-        st.error(time_range_error, icon=":material/error:")
     clip_timestamps = time_range_input or "0"
 
     keyterms_label_col, _ = st.columns([3, 1], vertical_alignment="center")
@@ -437,6 +438,10 @@ audio_sources = (
     or ([youtube_audio] if youtube_audio else [])
     or ([url_audio] if url_audio else [])
 )
+# Render outside the Advanced options expander so a disabled Transcribe button
+# always shows its reason, even when the expander holding the input is collapsed.
+if time_range_error:
+    st.error(time_range_error, icon=":material/error:")
 _, action_col = st.columns([3, 1])
 with action_col:
     transcribe_clicked = st.button(

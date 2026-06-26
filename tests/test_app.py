@@ -663,8 +663,17 @@ def test_escape_markdown(raw, expected):
 
 @pytest.mark.parametrize(
     "raw",
-    ["", "30,90", "0,60,120,180", " 30 , 90 ", "0,0.5", "1.5,2"],
-    ids=["blank", "single", "multi", "whitespace", "decimal_start", "decimal_pair"],
+    ["", "30,90", "0,60,120,180", " 30 , 90 ", "0,0.5", "1.5,2", "30", "30,60,90"],
+    ids=[
+        "blank",
+        "single",
+        "multi",
+        "whitespace",
+        "decimal_start",
+        "decimal_pair",
+        "trailing_start",
+        "trailing_start_multi",
+    ],
 )
 def test_validate_time_range_valid(raw):
     assert _validate_time_range(raw) is None
@@ -672,16 +681,16 @@ def test_validate_time_range_valid(raw):
 
 @pytest.mark.parametrize(
     "raw",
-    ["abc", "30,abc", "30", "30,60,90", "-5,10", "90,30", "30,30", "30,"],
+    ["abc", "30,abc", "-5,10", "90,30", "30,30", "30,", ",30", "60,90,0,30"],
     ids=[
         "non_numeric",
         "non_numeric_pair",
-        "odd_single",
-        "odd_triple",
         "negative",
         "end_before_start",
         "equal_pair",
         "trailing_comma",
+        "leading_comma",
+        "out_of_order",
     ],
 )
 def test_validate_time_range_invalid(raw):
