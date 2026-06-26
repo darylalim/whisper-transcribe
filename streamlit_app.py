@@ -1,6 +1,7 @@
 import re
 import tempfile
 from collections.abc import Sequence
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 from urllib.error import URLError
@@ -142,7 +143,7 @@ def _validate_time_range(raw: str) -> str | None:
     for start, end in zip(values[::2], values[1::2]):
         if end <= start:
             return f"Time range end ({end:g}) must be greater than start ({start:g})."
-    for prev, cur in zip(values, values[1:]):
+    for prev, cur in pairwise(values):
         if cur < prev:
             return "Time range values must be in increasing order."
     return None
@@ -234,9 +235,14 @@ def _labeled_toggle(label: str, help: str) -> bool:
     label_col, input_col = st.columns([3, 1], vertical_alignment="center")
     with label_col:
         st.markdown(label, help=help)
-    with input_col:
-        with st.container(horizontal_alignment="right"):
-            return st.toggle(label, value=False, label_visibility="collapsed")
+    with input_col, st.container(horizontal_alignment="right"):
+        return st.toggle(label, value=False, label_visibility="collapsed")
+
+
+def _field_label(label: str, help: str) -> None:
+    label_col, _ = st.columns([3, 1], vertical_alignment="center")
+    with label_col:
+        st.markdown(label, help=help)
 
 
 def _transcription_kwargs(
@@ -395,16 +401,12 @@ with st.expander("Advanced options", icon=":material/tune:"):
         "from prior windows. More robust on noisy or music-heavy audio.",
     )
 
-    time_range_label_col, _ = st.columns([3, 1], vertical_alignment="center")
-    with time_range_label_col:
-        st.markdown(
-            "Time range",
-            help=(
-                'Comma-separated start,end pairs in seconds (e.g., "30,90" for a '
-                'single clip, "0,60,120,180" for multiple clips). Leave blank to '
-                "transcribe the full file."
-            ),
-        )
+    _field_label(
+        "Time range",
+        'Comma-separated start,end pairs in seconds (e.g., "30,90" for a '
+        'single clip, "0,60,120,180" for multiple clips). Leave blank to '
+        "transcribe the full file.",
+    )
     time_range_input = st.text_input(
         "Time range",
         placeholder="e.g., 30,90 (leave blank for full file)",
@@ -413,15 +415,11 @@ with st.expander("Advanced options", icon=":material/tune:"):
     time_range_error = _validate_time_range(time_range_input)
     clip_timestamps = time_range_input or "0"
 
-    keyterms_label_col, _ = st.columns([3, 1], vertical_alignment="center")
-    with keyterms_label_col:
-        st.markdown(
-            "Keyterms",
-            help=(
-                "Up to 50 keyterms to be boosted during transcription. "
-                "Boosted terms are more likely to appear in the output."
-            ),
-        )
+    _field_label(
+        "Keyterms",
+        "Up to 50 keyterms to be boosted during transcription. "
+        "Boosted terms are more likely to appear in the output.",
+    )
     keyterms = st.multiselect(
         "Keyterms",
         options=[],
