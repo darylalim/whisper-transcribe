@@ -95,3 +95,7 @@ Mocked at the boundary (`mlx_whisper`, `yt_dlp`, `urlopen`, `st`). Shared fixtur
 ## Resources
 
 - [mlx-whisper](https://pypi.org/project/mlx-whisper/)
+
+## License
+
+MIT (see `LICENSE`); declared via `license = "MIT"` / `license-files = ["LICENSE"]` in `pyproject.toml`.
