@@ -27,6 +27,8 @@ Transcribe and translate audio and video **locally on your Mac** — no cloud, n
 
 You provide audio or video through one of four tabs (upload, record, YouTube, or URL). The app writes the audio to a temporary file and runs `mlx_whisper.transcribe()` with the Whisper large-v3-turbo model locally on Apple Silicon via MLX. The result is cached, rendered as editable plain text (or SRT when subtitles are enabled), and can be downloaded as `.txt` or `.srt`. See [CLAUDE.md](CLAUDE.md) for the full architecture.
 
+![A completed transcription in Whisper Transcribe — the editable transcript for an uploaded file, with a Download button to save it as .txt or .srt](docs/screenshot-result.png)
+
 ## Requirements
 
 - macOS on Apple Silicon (M1 / M2 / M3 / M4)
