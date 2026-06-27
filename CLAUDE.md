@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Streamlit web app for automatic speech recognition using the OpenAI Whisper large-v3-turbo model on Apple Silicon with MLX.
+Streamlit application for transcription and translation using OpenAI Whisper on Apple Silicon with MLX.
 
 ## Setup
 

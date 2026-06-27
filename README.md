@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 
-Transcribe and translate audio and video **locally on your Mac** — no cloud, no uploads, no cost. Powered by OpenAI's Whisper large-v3-turbo and accelerated on Apple Silicon with MLX (Apple's machine-learning framework). Bring your own files, record straight from the browser, or paste a YouTube or media URL.
+Transcribe and translate audio and video **locally on your Mac** — no cloud, no uploads, no cost. This Streamlit application is powered by OpenAI's Whisper and accelerated on Apple Silicon with MLX (Apple's machine-learning framework). Bring your own files, record straight from the browser, or paste a YouTube or media URL.
 
 ![Whisper Transcribe — the app's four input tabs (Upload, Record, YouTube, URL) with language, translation, subtitle, and advanced transcription controls](docs/screenshot.png)
 

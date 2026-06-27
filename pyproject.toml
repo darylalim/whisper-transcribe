@@ -1,7 +1,7 @@
 [project]
 name = "whisper-transcribe"
 version = "0.10.0"
-description = "Transcribe or translate audio and video files using the OpenAI Whisper large-v3-turbo model on Apple Silicon with MLX."
+description = "Streamlit application for transcription and translation using OpenAI Whisper on Apple Silicon with MLX."
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
