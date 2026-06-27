@@ -1,6 +1,6 @@
 [project]
 name = "whisper-transcribe"
-version = "0.10.0"
+version = "0.10.1"
 description = "Streamlit application for transcription and translation using OpenAI Whisper on Apple Silicon with MLX."
 requires-python = ">=3.12"
 license = "MIT"
