@@ -19,7 +19,13 @@ dependencies = [
     "mlx>=0.24.2",
     "mlx-whisper",
     "streamlit>=1.59",
-    "yt-dlp",
+    # The extras are what keep the YouTube tab off yt-dlp's deprecated JS-less
+    # client path: `default` brings yt-dlp-ejs (the JS challenge solver) and
+    # `deno` installs a Deno binary into the venv's bin/, which yt-dlp finds via
+    # sysconfig.get_path("scripts") with no PATH change. Bare yt-dlp on a Mac
+    # without Deno has no runtime it will use, so it falls back to whichever
+    # single client YouTube has not broken this month and sees fewer formats.
+    "yt-dlp[default,deno]",
 ]
 
 [dependency-groups]
