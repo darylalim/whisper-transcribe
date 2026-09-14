@@ -85,7 +85,7 @@ CI runs the same tools on every push to `main` and on pull requests — it uses 
 - **`ffmpeg` not found** — install it with `brew install ffmpeg` and verify with `ffmpeg -version`. FFmpeg is required for decoding audio and video.
 - **Intel Mac / non–Apple Silicon** — `mlx-whisper` requires Apple Silicon and will not run on Intel Macs.
 - **Long pause on the first transcription** — the model weights (~1.5 GB) are downloading from Hugging Face (see the *First run* note above); this needs a network connection and only happens once.
-- **YouTube download fails** — this usually means `yt-dlp` is out of date; update it with `uv lock --upgrade-package yt-dlp && uv sync`.
+- **YouTube download fails** — this usually means `yt-dlp` is out of date; update it with `uv lock --upgrade-package yt-dlp && uv sync`. If it still fails, `yt-dlp` may need a JavaScript runtime: YouTube extraction without one is deprecated upstream, and some videos and formats are only available with one. Install [Deno](https://deno.com) (`brew install deno`) — `yt-dlp` finds it on `PATH` with no configuration.
 - **Remote download rejected** — both remote fetches are capped at 500 MB: direct audio/video URLs, and YouTube audio (a multi-hour livestream VOD can exceed it).
 - **Download is missing your last edit** — the transcript box commits when it loses focus, so click outside it (or press Ctrl/Cmd+Enter) before pressing **Download**.
 

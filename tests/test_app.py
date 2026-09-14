@@ -1724,9 +1724,10 @@ def test_transcribe_dispatches_from_the_active_tab(active_tab, url, expected):
     ):
         _stub_urlopen(mock_urlopen, b"remote bytes")
         at = _run_app(active_tab=active_tab)
-        # CLAUDE.md long claimed AppTest could not seed a file_uploader. It can as
-        # of 1.61.1 -- FileUploader.set_value takes (name, bytes, mime), or a
-        # sequence of those for accept_multiple_files=True.
+        # CLAUDE.md long claimed AppTest could not seed a file_uploader. It can
+        # since at least the 1.59 floor (checked directly against 1.59.0) --
+        # FileUploader.set_value takes (name, bytes, mime), or a sequence of those
+        # for accept_multiple_files=True.
         at.file_uploader[0].set_value([("upload.mp3", b"upload bytes", "audio/mpeg")])
         at.run()
         if url is not None:

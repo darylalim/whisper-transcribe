@@ -10,13 +10,21 @@ from urllib.error import URLError
 from urllib.parse import unquote, urlparse
 from urllib.request import urlopen
 
-# mlx/core is a compiled extension (core.cpython-313-darwin.so) that ships no
-# .pyi alongside its py.typed marker, so ty cannot introspect it and reports
-# unresolved-import. The suppression is scoped to this line rather than turned
-# into a [tool.ty] rule override, so a genuinely missing import still fails.
-# mlx_whisper imports it the same way; ty only checks first-party code, which is
-# why the same statement inside site-packages raises nothing.
-import mlx.core as mx  # ty: ignore[unresolved-import]
+# mlx/core is a compiled extension (core.cpython-313-darwin.so). Most mlx
+# releases ship a stub package beside it (mlx/core/__init__.pyi and siblings), so
+# ty resolves the import and type-checks mx.clear_cache() for real. Whether a
+# given release has the stubs is a packaging property, not a version floor:
+# 0.31.2 and 0.32.1+ have them, 0.32.0 -- the pin this import was added under --
+# did not, and ty exits 1 on a stale suppression, so the directive is coupled to
+# the locked mlx in both directions. On a stub-less release this line needs
+# `ty: ignore[unresolved-import]` again (line-scoped, not a [tool.ty] rule
+# override, so a genuinely missing import still fails). That directive is spelled
+# without its leading `#` on purpose: a `#`-prefixed copy anywhere in a comment
+# is parsed as a live directive -- reported as unused here, or, on its own line
+# above an import that really fails to resolve, silently applied to that import.
+# The lockfile pins 0.32.2, so the 0.24.2 floor in pyproject.toml is an
+# mx.clear_cache() minimum, not a typing one.
+import mlx.core as mx
 import mlx_whisper
 import streamlit as st
 import yt_dlp
