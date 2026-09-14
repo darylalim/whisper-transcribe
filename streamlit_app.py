@@ -151,8 +151,8 @@ MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024
 SELECT_WIDTH = 168
 # Height of the st.skeleton standing in for a remote tab's st.audio preview while
 # the fetch runs, measured off the rendered player rather than guessed. Matching it
-# is the whole point of the skeleton: the cache's show_spinner already says a
-# download is happening, so what the placeholder adds is holding the preview's space
+# is the whole point of the skeleton: it is the only progress signal now that
+# show_spinner is off, and what it adds beyond that is holding the preview's space
 # so the controls below do not jump when the player replaces it. A wrong value trades
 # one jump for a smaller one. Re-measure if the preview ever stops being a bare
 # st.audio: getComputedStyle on [data-testid="stAudio"] reports the rendered height.
@@ -619,16 +619,17 @@ def _handle_transcription(
                 name_md = _escape_markdown(uploaded_file.name)
                 status.update(label=f"Transcribing {name_md} ({i}/{total})...")
                 name = Path(uploaded_file.name)
-                # Rewind before reading. UploadedFile subclasses io.BytesIO, and the
-                # deserialized widget value is cached in session state
-                # (WStates.__getitem__ stores Value(deserialized)), so the *same*
-                # object — and the same cursor — survives every rerun. read() leaves
-                # it at EOF, so a second Transcribe on an unchanged recording would
-                # hand _transcribe b"". This used to be masked by st.audio's own
-                # data.seek(0) inside _marshall_av_media, which ran once per rerun for
-                # each preview; that is a side effect of a display call, not a
-                # contract, and the Record tab deliberately renders no preview.
-                # _RemoteAudio has no cursor and needs no rewind.
+                # Rewind before reading. UploadedFile subclasses io.BytesIO, and
+                # read() leaves its cursor at EOF. The guard covers a same-object
+                # double read within one run -- st.file_uploader / st.audio_input
+                # hand the script a deepcopy of the cached widget value on every
+                # run (register_widget in session_state.py), so no rerun path
+                # delivers an already-read object. An earlier version of this
+                # comment claimed the cached object survived reruns; it does not.
+                # st.audio also rewinds as a side effect (_marshall_av_media calls
+                # data.seek(0)), but that is a display call, not a contract, and
+                # the Record tab renders no preview. _RemoteAudio has no cursor and
+                # needs no rewind.
                 if isinstance(uploaded_file, UploadedFile):
                     uploaded_file.seek(0)
                 try:
@@ -848,8 +849,8 @@ with youtube_tab:
     # controls have rendered. Streamlit paints top to bottom, so a fetch at this
     # position leaves the language selector, every toggle, and Advanced options
     # greyed out as stale for the length of the download. Writing back into this
-    # container keeps the preview — and the cache's own download spinner, the
-    # only progress signal on this path — inside the tab where they belong.
+    # container keeps the preview, the loading skeleton, and both error alerts
+    # inside the tab where they belong.
     youtube_slot = st.container()
 
 with url_tab:
@@ -987,10 +988,10 @@ if youtube_tab.open and youtube_url and YOUTUBE_URL_RE.match(youtube_url):
     # `with youtube_slot, st.skeleton(...)`, not `youtube_slot.skeleton()`. The
     # skeleton's context-manager form does not redirect bare st.* calls into
     # itself -- they land in the *parent* container -- so entering youtube_slot
-    # first is what keeps the cache's download spinner, the st.audio preview and
-    # the two error alerts inside the tab. Calling youtube_slot.skeleton() alone
-    # would put the skeleton in the tab and strand everything else below the
-    # controls, which is the exact layout bug reserving the slot exists to avoid.
+    # first is what keeps the st.audio preview and the two error alerts inside the
+    # tab. Calling youtube_slot.skeleton() alone would put the skeleton in the tab
+    # and strand everything else below the controls, which is the exact layout bug
+    # reserving the slot exists to avoid.
     with youtube_slot, st.skeleton(height=AUDIO_PREVIEW_HEIGHT):
         try:
             data, filename, mime = _fetch_youtube_audio(youtube_url)

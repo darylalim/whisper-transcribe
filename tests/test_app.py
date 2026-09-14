@@ -797,12 +797,12 @@ def test_error_escapes_the_whole_message(mock_st, message, expected):
 
 
 def test_handle_transcription_rewinds_the_cursor_before_reading(mock_st):
-    # UploadedFile subclasses io.BytesIO, and the deserialized widget value is
-    # cached in session state (WStates.__getitem__ stores Value(deserialized)), so
-    # the same object -- and the same cursor -- survives every rerun. read() leaves
-    # it at EOF. st.audio used to rewind it as a side effect of rendering a preview
-    # (_marshall_av_media calls data.seek(0)); the Record tab renders none, so a
-    # second Transcribe on an unchanged recording would otherwise transcribe b"".
+    # UploadedFile subclasses io.BytesIO, and read() leaves it at EOF. The widget
+    # hands the script a deepcopy of the cached value on every run (register_widget
+    # in session_state.py), so no rerun delivers an exhausted object; what the
+    # seek(0) guards is a same-object double read within one run, which is what
+    # this test constructs. st.audio rewinds as a side effect of rendering a preview
+    # (_marshall_av_media calls data.seek(0)), but the Record tab renders none.
     rec = UploadedFileRec("id", "recording.wav", "audio/wav", b"real audio bytes")
     recording = UploadedFile(rec, FileURLs())
 
