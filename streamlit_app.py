@@ -10,20 +10,14 @@ from urllib.error import URLError
 from urllib.parse import unquote, urlparse
 from urllib.request import urlopen
 
-# mlx/core is a compiled extension (core.cpython-313-darwin.so). Most mlx
-# releases ship a stub package beside it (mlx/core/__init__.pyi and siblings), so
-# ty resolves the import and type-checks mx.clear_cache() for real. Whether a
-# given release has the stubs is a packaging property, not a version floor:
-# 0.31.2 and 0.32.1+ have them, 0.32.0 -- the pin this import was added under --
-# did not, and ty exits 1 on a stale suppression, so the directive is coupled to
-# the locked mlx in both directions. On a stub-less release this line needs
-# `ty: ignore[unresolved-import]` again (line-scoped, not a [tool.ty] rule
-# override, so a genuinely missing import still fails). That directive is spelled
-# without its leading `#` on purpose: a `#`-prefixed copy anywhere in a comment
-# is parsed as a live directive -- reported as unused here, or, on its own line
-# above an import that really fails to resolve, silently applied to that import.
-# The lockfile pins 0.32.2, so the 0.24.2 floor in pyproject.toml is an
-# mx.clear_cache() minimum, not a typing one.
+# mlx/core is a compiled extension; ty resolves it through the mlx/core/*.pyi
+# stubs the locked mlx wheel ships, so this import carries no suppression and
+# mx.clear_cache() is type-checked for real. Not every release ships the stubs
+# (0.32.0 did not): on a stub-less lock this line needs a line-scoped
+# `ty: ignore[unresolved-import]` again, and ty exits 1 on a stale one, so the
+# directive tracks the lock in both directions. That token is spelled without
+# its leading `#` on purpose -- a `#`-prefixed copy anywhere in a comment is a
+# live directive to ty. History and measurements: CLAUDE.md, "Model".
 import mlx.core as mx
 import mlx_whisper
 import streamlit as st
@@ -213,7 +207,12 @@ def _fetch_youtube_audio(url: str) -> tuple[bytes, str, str]:
             "format": "bestaudio/best",
             "outtmpl": str(Path(tmpdir) / "%(title)s.%(ext)s"),
             "quiet": True,
-            "no_warnings": True,
+            # Deliberately no "no_warnings": yt-dlp's warnings are the only signal
+            # that a fetch fell back to the deprecated JS-less client (a Deno that
+            # fails to exec, a solver script it rejects). "quiet" keeps them off
+            # the UI; they go to the server's stderr, where a normal fetch with the
+            # bundled runtime writes no warnings (the progress bar on stdout is
+            # older than this and unrelated).
             "noplaylist": True,
             "restrictfilenames": True,
             "max_filesize": MAX_DOWNLOAD_BYTES,

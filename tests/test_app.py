@@ -293,6 +293,9 @@ def test_fetch_youtube_audio_uses_safe_options(mock_yt_dlp, tmp_path):
     assert opts["noplaylist"] is True
     assert opts["restrictfilenames"] is True
     assert opts["quiet"] is True
+    # Warnings are the only signal that a fetch fell back to the JS-less client;
+    # "quiet" keeps them off the UI, and nothing may silence them entirely.
+    assert "no_warnings" not in opts
 
 
 def test_yt_dlp_discovers_the_bundled_deno_runtime():
