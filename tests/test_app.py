@@ -145,6 +145,12 @@ def _clear_caches():
     # store, which would otherwise persist for the whole session and let a
     # later case read a stale hit from an earlier one.
     st.cache_data.clear()
+    # Nothing is @st.cache_resource today. Kept anyway: it is a no-op on an
+    # empty store, the two APIs own separate singletons (measured -- clearing
+    # one leaves the other cached), and the first cache_resource function added
+    # back would otherwise re-create the order-dependence above with nothing to
+    # fail until someone remembered this line.
+    st.cache_resource.clear()
 
 
 @pytest.fixture
@@ -1068,9 +1074,9 @@ def test_format_srt_escapes_arrow():
         ("mystery.xyz", "audio/wav"),
         ("download", "audio/wav"),
         # A dotfile named for an extension *is* accepted (`.mp3` ends with
-        # `.mp3`) and Path.suffix reads it as extensionless -- the one upload
-        # that lands on the fallback.
-        (".mp3", "audio/wav"),
+        # `.mp3`), so it must get that type -- Path.suffix would read it as
+        # extensionless and serve it as WAV.
+        (".mp3", "audio/mpeg"),
     ],
     ids=[
         "mp3",
@@ -1434,8 +1440,14 @@ def _recording(name="recording.wav", data=b"wav bytes"):
     # `mlx_whisper.transcribe`, and the only one that works (see _upload). The
     # script does `st.audio_input(...)` at call time, so the patched attribute is
     # what it reaches; no widget is registered, which nothing here depends on.
-    rec = UploadedFile(UploadedFileRec("id", name, "audio/wav", data), FileURLs())
-    return patch("streamlit.audio_input", return_value=rec)
+    # side_effect, not return_value: the real widget hands the script a fresh
+    # deepcopy on every run (register_widget in session_state.py), so a shared
+    # object whose cursor a first click left at EOF would be a state the app
+    # never sees.
+    def fresh(*_args, **_kwargs):
+        return UploadedFile(UploadedFileRec("id", name, "audio/wav", data), FileURLs())
+
+    return patch("streamlit.audio_input", side_effect=fresh)
 
 
 def _assert_declared_mime(element, mime):
@@ -1493,24 +1505,26 @@ def test_transcription_failure_renders_an_escaped_alert():
         ([(False, ["upload"]), (True, ["recording"])], ["recording"]),
         ([(False, ["upload"]), (True, [])], ["upload"]),
         ([(False, ["upload"]), (False, ["recording"])], ["upload"]),
-        ([(None, ["upload"]), (None, ["recording"])], ["upload"]),
+        ([(None, ["upload"]), (True, ["recording"])], ["recording"]),
         ([(True, []), (False, [])], []),
     ],
     ids=[
         "open_tab_wins",
         "empty_open_tab_falls_back",
         "no_open_tab_falls_back_in_priority_order",
-        "untracked_tabs_fall_back",
+        "none_reads_as_closed",
         "nothing_loaded",
     ],
 )
 def test_active_sources(tab_sources, expected):
     # `open_tab_wins` is the only case that fails when the `is_open and` filter
-    # is dropped. `untracked_tabs_fall_back` feeds the None that TabContainer.open
-    # returns without on_change="rerun"; with *every* flag None, "None is closed"
-    # and "None is open" both yield the priority order, so it pins only that None
-    # is accepted -- the semantics are unobservable from outside, by construction.
-    # The script-level check that the body routes through this helper at all is
+    # is dropped. `none_reads_as_closed` pins the None that TabContainer.open
+    # returns without on_change="rerun": a *mixed* layout, because with every
+    # flag None the "closed" and "open" readings both yield the priority order
+    # and the case would pin nothing -- here None-as-open would return the
+    # upload. (Mixed flags never occur in practice; this pins the documented
+    # contract, not a reachable state.) The script-level check that the body
+    # routes through this helper at all is
     # test_transcribe_runs_the_open_tab_over_a_loaded_upload.
     assert _active_sources(tab_sources) == expected
 

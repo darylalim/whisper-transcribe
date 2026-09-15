@@ -66,10 +66,9 @@ MEDIA_MIME_TYPES = {
     "mkv": "video/x-matroska",
 }
 # Fallback for an extension outside the map. With the map mirroring the accept
-# list, the only upload that reaches it is a dotfile named for an extension
-# (`.mp3` passes enforce_filename_restriction's endswith check, and Path.suffix
-# reads it as extensionless). It must stay non-empty regardless: the media route
-# does `media_type=mimetype or "text/plain"`, so an empty string would serve
+# list and _media_mime reading the extension the way the uploader does, no
+# upload reaches it; it must stay non-empty regardless, because the media route
+# does `media_type=mimetype or "text/plain"` and an empty string would serve
 # audio as text.
 DEFAULT_MEDIA_MIME = "audio/wav"
 ERROR_ICON = ":material/error:"
@@ -159,8 +158,13 @@ def _media_mime(filename: str) -> str:
 
     See MEDIA_MIME_TYPES for why st.audio's "audio/wav" default is not good enough
     and why this is a hand-written map rather than mimetypes.guess_type.
+
+    rpartition rather than Path.suffix, to read the extension the way the
+    uploader's enforce_filename_restriction does (an endswith check): a file
+    literally named `.mp3` is accepted as an MP3, and Path.suffix would call it
+    extensionless and hand it the fallback.
     """
-    return MEDIA_MIME_TYPES.get(Path(filename).suffix.lstrip(".").lower(), DEFAULT_MEDIA_MIME)
+    return MEDIA_MIME_TYPES.get(filename.lower().rpartition(".")[2], DEFAULT_MEDIA_MIME)
 
 
 def _plural(count: int, noun: str) -> str:
