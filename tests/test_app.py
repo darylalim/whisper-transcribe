@@ -1,8 +1,11 @@
+import shutil
+import sysconfig
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
 import pytest
 import streamlit as st
+import yt_dlp
 from streamlit.proto.Common_pb2 import FileURLs
 from streamlit.runtime.memory_media_file_storage import get_extension_for_mimetype
 from streamlit.runtime.uploaded_file_manager import UploadedFile, UploadedFileRec
@@ -290,6 +293,22 @@ def test_fetch_youtube_audio_uses_safe_options(mock_yt_dlp, tmp_path):
     assert opts["noplaylist"] is True
     assert opts["restrictfilenames"] is True
     assert opts["quiet"] is True
+
+
+def test_yt_dlp_discovers_the_bundled_deno_runtime():
+    # The `deno` extra on yt-dlp installs a Deno binary into the venv's scripts
+    # dir, and yt-dlp's _find_exe checks that dir before PATH. Nothing else in
+    # the suite can see this -- every other YouTube case mocks yt_dlp at the
+    # boundary -- so dropping the extra, or a deno wheel that stops shipping the
+    # binary, would stay green while every fetch fell back to the deprecated
+    # JS-less client. Spawns `deno --version` once; no network.
+    bundled = shutil.which("deno", path=sysconfig.get_path("scripts"))
+    assert bundled, "the yt-dlp[deno] extra did not install deno into the venv"
+
+    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+        info = ydl._js_runtimes["deno"].info
+    assert info is not None and info.supported
+    assert Path(info.path) == Path(bundled)
 
 
 @patch("streamlit_app.urlopen")

@@ -6,10 +6,10 @@ resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
     "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'win32'",
-    "python_full_version < '3.13' and sys_platform == 'win32'",
     "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
-    "python_full_version < '3.13' and sys_platform == 'emscripten'",
     "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version < '3.13' and sys_platform == 'win32'",
+    "python_full_version < '3.13' and sys_platform == 'emscripten'",
     "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
@@ -2151,7 +2151,7 @@ requires-dist = [
     { name = "mlx", specifier = ">=0.24.2" },
     { name = "mlx-whisper" },
     { name = "streamlit", specifier = ">=1.59" },
-    { name = "yt-dlp", extras = ["default", "deno"] },
+    { name = "yt-dlp", extras = ["default", "deno"], specifier = ">=2026.8.19" },
 ]
 
 [package.metadata.requires-dev]
