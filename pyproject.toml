@@ -19,17 +19,6 @@ dependencies = [
     "mlx>=0.24.2",
     "mlx-whisper",
     "streamlit>=1.59",
-    # The extras are what keep the YouTube tab off yt-dlp's deprecated JS-less
-    # client path: `default` brings yt-dlp-ejs (the JS challenge solver) and
-    # `deno` installs a Deno binary into the venv's bin/, which yt-dlp finds via
-    # sysconfig.get_path("scripts") with no PATH change. Bare yt-dlp on a Mac
-    # without Deno has no runtime it will use, so it falls back to whichever
-    # single client YouTube has not broken this month and sees fewer formats.
-    # The floor is the lowest version confirmed to carry the `deno` extra, not a
-    # bisected minimum. It matters because uv only *warns* when a resolved version
-    # lacks a declared extra, so without it a downgrade would shed the runtime
-    # silently; with it the downgrade is a resolver error.
-    "yt-dlp[default,deno]>=2026.8.19",
 ]
 
 [dependency-groups]

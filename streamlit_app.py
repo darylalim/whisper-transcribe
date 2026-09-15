@@ -6,9 +6,6 @@ from collections.abc import Sequence
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
-from urllib.error import URLError
-from urllib.parse import unquote, urlparse
-from urllib.request import urlopen
 
 # mlx/core is a compiled extension; ty resolves it through the mlx/core/*.pyi
 # stubs the locked mlx wheel ships, so this import carries no suppression and
@@ -21,7 +18,6 @@ from urllib.request import urlopen
 import mlx.core as mx
 import mlx_whisper
 import streamlit as st
-import yt_dlp
 from mlx_whisper.tokenizer import LANGUAGES
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
@@ -45,40 +41,36 @@ VIDEO_FORMATS = (
 # _marshall_av_media into MediaFileManager.add() with no sniffing anywhere, and
 # becomes both the Content-Type header the media route serves and the extension
 # in the /media/<hash>.<ext> URL. Its default is "audio/wav", so without this map
-# every preview — an .mp3 upload, a YouTube Opus stream — is advertised as WAV.
+# every preview — an .mp3 upload, an .m4a voice memo — is advertised as WAV.
 # Chrome and Firefox sniff the container and play it anyway; browsers that trust
 # the declared type can refuse. Deliberately not mimetypes.guess_type: it maps
-# .m4a to the non-standard audio/mp4a-latm that browsers do not recognize, reads
-# a table that varies by platform, and returns None for the extensionless name
-# _fetch_url_audio falls back to. Covers more than AUDIO_FORMATS/VIDEO_FORMATS
-# because the YouTube and URL paths never consult those tuples.
+# .m4a to the non-standard audio/mp4a-latm that browsers do not recognize and
+# reads a table that varies by platform. One entry per extension the uploader
+# *accepts*, which is not quite the eight it declares: normalize_upload_file_type
+# (streamlit/elements/lib/file_uploader_utils.py, TYPE_PAIRS) silently adds
+# `.mpeg4` beside `.mp4`, browser- and server-side alike, so a clip.mpeg4 upload
+# is legal and needs an entry or it lands on the fallback below.
+# test_media_mime_covers_every_upload_format keeps this map equal to that
+# normalized list, so a format added to AUDIO_FORMATS/VIDEO_FORMATS (or an alias
+# Streamlit pairs in) without an entry here fails a test instead of shipping the
+# WAV mis-declaration for that one extension.
 MEDIA_MIME_TYPES = {
     "mp3": "audio/mpeg",
     "m4a": "audio/mp4",
     "wav": "audio/wav",
     "opus": "audio/ogg",
-    "oga": "audio/ogg",
-    "ogg": "audio/ogg",
-    "flac": "audio/flac",
-    "aac": "audio/aac",
     "mp4": "video/mp4",
+    "mpeg4": "video/mp4",
     "mov": "video/quicktime",
     "webm": "video/webm",
     "mkv": "video/x-matroska",
 }
-# A container extension names the container, not its contents. yt-dlp's
-# `bestaudio` yields audio-only .webm (Opus) and .m4a/.mp4 (AAC), and declaring
-# video/webm on an <audio> element is the same mis-declaration MEDIA_MIME_TYPES
-# exists to prevent — so a caller that *knows* there is no video track says so
-# and gets the audio/* sibling. Only the two containers bestaudio actually
-# produces are listed; .mkv/.mov audio-only does not occur on these paths.
-AUDIO_ONLY_MIME_TYPES = {
-    "video/webm": "audio/webm",
-    "video/mp4": "audio/mp4",
-}
-# Fallback for an unrecognized extension, including _fetch_url_audio's extensionless
-# "download". Must stay non-empty: the media route does `media_type=mimetype or
-# "text/plain"`, so an empty string would serve audio as text.
+# Fallback for an extension outside the map. With the map mirroring the accept
+# list, the only upload that reaches it is a dotfile named for an extension
+# (`.mp3` passes enforce_filename_restriction's endswith check, and Path.suffix
+# reads it as extensionless). It must stay non-empty regardless: the media route
+# does `media_type=mimetype or "text/plain"`, so an empty string would serve
+# audio as text.
 DEFAULT_MEDIA_MIME = "audio/wav"
 ERROR_ICON = ":material/error:"
 # Cap on an error alert's length, applied head-and-tail rather than as a plain
@@ -114,13 +106,6 @@ FORMAT_PLAIN_TEXT = "Plain text"
 FORMAT_SUBTITLES = "Subtitles"
 TRANSCRIPT_FORMATS = (FORMAT_PLAIN_TEXT, FORMAT_SUBTITLES)
 LANGUAGE_CODES: list[str | None] = [None] + sorted(LANGUAGES, key=lambda c: LANGUAGES[c])
-YOUTUBE_URL_RE = re.compile(r"^https?://(www\.|m\.)?(youtube\.com/|youtu\.be/)", re.IGNORECASE)
-URL_RE = re.compile(r"^https?://", re.IGNORECASE)
-# Ceiling on bytes either remote fetch will pull into memory and cache. Governs
-# both the URL and the YouTube path (hence the name — it was MAX_URL_DOWNLOAD_BYTES
-# while only the URL path was capped). Distinct from server.maxUploadSize, which
-# bounds a per-file browser PUT that never enters these caches.
-MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024
 # Shared width of every right-hand control: the language selectbox, the Time range
 # input, and the Transcribe and Download buttons. It has to be an explicit number
 # because st.selectbox has no width="content" (its default is "stretch", which
@@ -143,14 +128,6 @@ MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024
 # columns, so the right column was (704 - 32) / 4 = 168px — and kept at that value
 # so the rendered layout is unchanged now that the columns are gone.
 SELECT_WIDTH = 168
-# Height of the st.skeleton standing in for a remote tab's st.audio preview while
-# the fetch runs, measured off the rendered player rather than guessed. Matching it
-# is the whole point of the skeleton: it is the only progress signal now that
-# show_spinner is off, and what it adds beyond that is holding the preview's space
-# so the controls below do not jump when the player replaces it. A wrong value trades
-# one jump for a smaller one. Re-measure if the preview ever stops being a bare
-# st.audio: getComputedStyle on [data-testid="stAudio"] reports the rendered height.
-AUDIO_PREVIEW_HEIGHT = 40
 PAGE_CONFIG: dict[str, Any] = {
     "page_title": "Whisper Transcribe",
     "page_icon": ":material/graphic_eq:",
@@ -158,126 +135,32 @@ PAGE_CONFIG: dict[str, Any] = {
 }
 
 
-class _RemoteAudio:
-    def __init__(self, name: str, data: bytes) -> None:
-        self.name = name
-        self._data = data
+def _active_sources(
+    tab_sources: Sequence[tuple[bool | None, Sequence[UploadedFile]]],
+) -> Sequence[UploadedFile]:
+    """Pick the batch to transcribe: the open tab's sources, else the first non-empty.
 
-    def read(self) -> bytes:
-        return self._data
-
-
-# cache_resource, not cache_data, and the deviation is deliberate: performance.md
-# scopes cache_resource to unserializable objects, and bytes are serializable. But
-# cache_data stores entries *pickled* and returns a fresh copy per call, so an
-# active entry costs three resident buffers — the pickled entry, a per-rerun
-# unpickled copy (these fetches re-invoke on every rerun while their tab is open),
-# and the MediaFileManager buffer backing the st.audio preview. cache_resource
-# hands back the same object and collapses the first two. Safe here only because
-# the return is a tuple of immutables: a shared mutable would be a cross-session
-# aliasing bug. Note _clear_caches must call st.cache_resource.clear() too.
-#
-# max_entries=2, not 5, and it is the *only* lever on the memory ceiling. These two
-# caches hold raw audio, so the worst case is entries x MAX_DOWNLOAD_BYTES x 2
-# caches -- 5 GB at the old value, 2 GB at this one. ttl looks like it should help
-# and does not: Streamlit's ttl_cache expires lazily, so an expired entry reads as
-# absent but is only actually dropped by a write, an expire() call, or a
-# length/size query. It bounds staleness, not resident memory, and an idle server
-# can hold expired payloads indefinitely. max_entries is what bounds how many can
-# coexist. The cost of the smaller number is a re-download when a user cycles
-# through more than two remote sources inside the ttl window; 2 still covers going
-# back to the previous one, which is the common case.
-#
-# show_spinner=False, and this reverses an earlier decision on purpose. These two
-# fetches used to pass a "Downloading audio from..." message on the grounds that,
-# unlike _transcribe, nothing wraps them in an st.status and the cache spinner was
-# the only progress signal. The st.skeleton in each tab's reserved slot is now that
-# signal, and the spinner actively fights it: the spinner is an *extra* element with
-# no reserved space, so during a download it grows the slot by its own height and
-# pushes the settings card and Transcribe button down ~40px, which then snap back
-# when it clears. Measured against a deliberately slow local server, with both, the
-# card rendered stale-faded with the spinner text overlapping it; with the skeleton
-# alone the page does not move at all, because a skeleton sized to the preview it
-# replaces is layout-neutral by construction. Reserving space is the whole point of
-# the pattern, and the spinner is the thing that breaks the reservation.
-@st.cache_resource(show_spinner=False, max_entries=2, ttl="1h")
-def _fetch_youtube_audio(url: str) -> tuple[bytes, str, str]:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        ydl_opts = {
-            "format": "bestaudio/best",
-            "outtmpl": str(Path(tmpdir) / "%(title)s.%(ext)s"),
-            "quiet": True,
-            # Deliberately no "no_warnings": yt-dlp's warnings are the only signal
-            # that a fetch fell back to the deprecated JS-less client (a Deno that
-            # fails to exec, a solver script it rejects). "quiet" keeps them off
-            # the UI; they go to the server's stderr, where a normal fetch with the
-            # bundled runtime writes no warnings (the progress bar on stdout is
-            # older than this and unrelated).
-            "noplaylist": True,
-            "restrictfilenames": True,
-            "max_filesize": MAX_DOWNLOAD_BYTES,
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            downloaded = Path(ydl.prepare_filename(info))
-        # Both halves are needed. `max_filesize` aborts the download early, but
-        # yt-dlp only consults it where a Content-Length is known (downloader/
-        # http.py, external.py) — no fragmented HLS/DASH downloader reads it at
-        # all, which is exactly the multi-hour livestream VOD this exists to
-        # stop. The stat() gate catches what slipped through: the file is
-        # already on disk, and what is being bounded is the slurp into one
-        # bytes object and the cache entry holding it, not the disk write.
-        if downloaded.stat().st_size > MAX_DOWNLOAD_BYTES:
-            raise RuntimeError(f"YouTube audio exceeds {MAX_DOWNLOAD_BYTES // (1024 * 1024)} MB")
-        # The extension alone cannot tell an audio-only WebM from a video one, but
-        # `info` can: with format="bestaudio/best" yt-dlp reports the selected
-        # stream's codecs, so vcodec == "none" means there is no video track. A
-        # missing key falls back to the container's own type, which is what an
-        # unknown/merged selection deserves.
-        audio_only = info.get("vcodec") == "none"
-        return (
-            downloaded.read_bytes(),
-            downloaded.name,
-            _media_mime(downloaded.name, audio_only=audio_only),
-        )
-
-
-@st.cache_resource(show_spinner=False, max_entries=2, ttl="1h")  # See above.
-def _fetch_url_audio(url: str) -> tuple[bytes, str, str]:
-    with urlopen(url, timeout=60) as resp:
-        data = resp.read(MAX_DOWNLOAD_BYTES + 1)
-        declared = resp.headers.get("Content-Type", "")
-    if len(data) > MAX_DOWNLOAD_BYTES:
-        raise RuntimeError(f"URL response exceeds {MAX_DOWNLOAD_BYTES // (1024 * 1024)} MB")
-    filename = unquote(Path(urlparse(url).path).name) or "download"
-    return data, filename, _url_mime(declared, filename)
-
-
-def _url_mime(declared: str, filename: str) -> str:
-    """Prefer the server's own Content-Type, falling back to the extension map.
-
-    The header is authoritative and covers what an extension cannot see: a
-    content-negotiated or query-driven URL, a redirect target with no extension,
-    and the extensionless "download" fallback — all of which the map can only
-    answer with DEFAULT_MEDIA_MIME, i.e. the very audio/wav mis-declaration
-    _media_mime exists to avoid. Only audio/* and video/* are trusted, though: a
-    server that answers text/html (an error page) or application/octet-stream
-    must not get to set the declared type of an <audio> element.
+    `tab_sources` is one (tab.open, sources) pair per input tab, in priority
+    order. `tab.open` is None when st.tabs is not tracking state (no
+    on_change="rerun"), which reads as "not open" and so as the fallback.
+    Factored out of the script body so the selection rule is unit-testable in
+    isolation (test_active_sources); the end-to-end check that the script
+    actually routes through it, with a recording planted by patching
+    st.audio_input, is test_transcribe_runs_the_open_tab_over_a_loaded_upload.
     """
-    mime = declared.split(";")[0].strip().lower()
-    return mime if mime.startswith(("audio/", "video/")) else _media_mime(filename)
+    return next(
+        (sources for is_open, sources in tab_sources if is_open and sources),
+        next((sources for _, sources in tab_sources if sources), []),
+    )
 
 
-def _media_mime(filename: str, *, audio_only: bool = False) -> str:
+def _media_mime(filename: str) -> str:
     """Content-Type for an st.audio preview, derived from the filename's extension.
 
     See MEDIA_MIME_TYPES for why st.audio's "audio/wav" default is not good enough
-    and why this is a hand-written map rather than mimetypes.guess_type. Pass
-    audio_only=True when the caller knows the container holds no video track — see
-    AUDIO_ONLY_MIME_TYPES.
+    and why this is a hand-written map rather than mimetypes.guess_type.
     """
-    mime = MEDIA_MIME_TYPES.get(Path(filename).suffix.lstrip(".").lower(), DEFAULT_MEDIA_MIME)
-    return AUDIO_ONLY_MIME_TYPES.get(mime, mime) if audio_only else mime
+    return MEDIA_MIME_TYPES.get(Path(filename).suffix.lstrip(".").lower(), DEFAULT_MEDIA_MIME)
 
 
 def _plural(count: int, noun: str) -> str:
@@ -367,14 +250,14 @@ _MARKDOWN_ESCAPE_RE = re.compile(r"([\\`*_~\[\]:$&])")
 def _escape_markdown(text: str) -> str:
     """Render `text` literally at any of this app's Markdown sinks.
 
-    Filenames are untrusted: `_fetch_url_audio` percent-decodes them off the URL
-    path, so `%5B` / `%28` arrive as live syntax and `%0A` as a real newline.
+    Filenames are untrusted: an upload carries whatever name the browser sent,
+    and `[`, `*`, `_`, `:` and `&` are all legal characters in one.
 
     Two mechanisms, because Markdown has two layers:
 
     *Inline* constructs are backslash-escaped. A filename containing *, _,
-    backticks, brackets, or : (emoji/Material-icon directives) — common in YouTube
-    titles and underscored names — would otherwise mis-render. `&` is in the class
+    backticks, brackets, or : (emoji/Material-icon directives) — underscored
+    names are the everyday case — would otherwise mis-render. `&` is in the class
     because micromark's characterReference is a parse-time construct: without it
     `clip&#58;streamlit&#58;.mp3` decodes to a live `:streamlit:` that the
     frontend's post-parse pass swaps for the logo image, and `Rock &amp; Roll.mp3`
@@ -393,6 +276,12 @@ def _escape_markdown(text: str) -> str:
     - `st.subheader` — the heading component does `[first, ...rest] = body.split("\\n")`
       and renders `rest` through a bare `StreamlitMarkdown` with no isLabel and no
       disallowedElements, so everything after the first newline is full Markdown.
+
+    No browser path delivers a newline: browsers percent-encode one in an
+    upload's name before sending it, and st.audio_input names its own file. A
+    direct PUT to the upload route can, since the route copies the multipart
+    filename through unchanged — one more reason the collapse stays, on top of
+    both sinks being unguarded and the cost being one join.
     """
     return _MARKDOWN_ESCAPE_RE.sub(r"\\\1", " ".join(text.split()))
 
@@ -415,21 +304,22 @@ def _condense(message: str) -> str:
 def _error(message: str) -> None:
     """Render an error alert with the app's icon, as literal text.
 
-    The *whole* message is escaped, so callers pass raw text — filenames, URLs,
+    The *whole* message is escaped, so callers pass raw text — filenames,
     exception strings — and never escape at the interpolation site. Escaping the
     fixed literals along with them is harmless: `:` becomes `\\:`, which renders
     as a colon.
 
     Both halves matter. st.error's body is one of the two sinks Streamlit renders
-    without the frontend's isLabel flag (see _escape_markdown), and the exception
-    text reaching it is untrusted: yt-dlp's UnsupportedError is literally
-    f"Unsupported URL: {url}" and YOUTUBE_URL_RE is prefix-anchored, so a pasted
-    `https://youtu.be/![](https://host/p.png)` arrives verbatim and would fire an
-    outbound request. _validate_time_range likewise echoes the raw input back.
-    Routing every call through here also makes the icon structural instead of a
-    literal repeated at seven call sites, where a new one renders a bare box —
-    and gives `_condense` a single place to bound the length, which matters for
-    the same reason: the text is a library's, not ours. See `ERROR_MESSAGE_LIMIT`.
+    without the frontend's isLabel flag (see _escape_markdown), and the text
+    reaching it is untrusted: _handle_transcription interpolates the upload's raw
+    filename into both of its failure messages, and _validate_time_range echoes
+    the raw input back. An unescaped `![](…)` in either fires an image request to
+    whatever destination the text spells — and a filename needs no `/` to point
+    off-site, since `https:host` resolves as `https://host/`. Routing every call
+    through here also makes the icon structural instead of a literal repeated at
+    every call site, where a new one renders a bare box, and gives `_condense` a
+    single place to bound the length, which matters for the same reason: the
+    text is a library's, not ours. See `ERROR_MESSAGE_LIMIT`.
     """
     st.error(_escape_markdown(_condense(message)), icon=ERROR_ICON)
 
@@ -571,7 +461,7 @@ def _transcribe(
 
 
 def _handle_transcription(
-    uploaded_files: Sequence[UploadedFile | _RemoteAudio],
+    uploaded_files: Sequence[UploadedFile],
     *,
     language: str | None,
     task: str,
@@ -612,14 +502,15 @@ def _handle_transcription(
             for i, uploaded_file in enumerate(uploaded_files, start=1):
                 # Escape before interpolating anywhere Markdown renders. An st.status
                 # label takes the Markdown label subset — which includes images, so a
-                # filename carrying `![](https://host/x.png)` would fetch on *every*
-                # file, not just a failure — and st.error below renders full Markdown.
+                # filename carrying `![](https:host)` (no `/` needed; it resolves to
+                # https://host/) would fetch on *every* file, not just a failure —
+                # and st.error below renders full Markdown.
                 # See _escape_markdown for what it does and does not cover.
                 name_md = _escape_markdown(uploaded_file.name)
                 status.update(label=f"Transcribing {name_md} ({i}/{total})...")
                 name = Path(uploaded_file.name)
                 # Rewind before reading. UploadedFile subclasses io.BytesIO, and
-                # read() leaves its cursor at EOF. The guard covers a same-object
+                # read() leaves its cursor at EOF. The rewind covers a same-object
                 # double read within one run -- st.file_uploader / st.audio_input
                 # hand the script a deepcopy of the cached widget value on every
                 # run (register_widget in session_state.py), so no rerun path
@@ -627,10 +518,8 @@ def _handle_transcription(
                 # comment claimed the cached object survived reruns; it does not.
                 # st.audio also rewinds as a side effect (_marshall_av_media calls
                 # data.seek(0)), but that is a display call, not a contract, and
-                # the Record tab renders no preview. _RemoteAudio has no cursor and
-                # needs no rewind.
-                if isinstance(uploaded_file, UploadedFile):
-                    uploaded_file.seek(0)
+                # the Record tab renders no preview.
+                uploaded_file.seek(0)
                 try:
                     result = _transcribe(
                         uploaded_file.read(),
@@ -803,19 +692,18 @@ st.title("Whisper Transcribe")
 # Orientation for a first-time visitor, who otherwise meets a bare title and a
 # dropzone. st.caption rather than st.info: design.md scopes the callout styles to
 # instructions and problems, and this is neither. Deliberately says "transcribed"
-# rather than a flat "nothing leaves your Mac" — the YouTube and URL tabs do reach
-# the network, so the stronger claim would be false in two of the four modes.
+# rather than a flat "nothing leaves your Mac" — the first transcription fetches
+# the model weights, so the stronger claim would be false for exactly the
+# first-time visitor this line exists for.
 st.caption("Audio and video, transcribed and translated locally on your Mac.")
 
-upload_tab, record_tab, youtube_tab, url_tab = st.tabs(
+upload_tab, record_tab = st.tabs(
     [
         ":material/upload: Upload",
         ":material/mic: Record",
-        ":material/smart_display: YouTube",
-        ":material/link: URL",
     ],
-    # on_change="rerun" enables the per-tab `.open` flag used to gate the remote
-    # fetches below; `key` exposes the active tab's label in session state so
+    # on_change="rerun" enables the per-tab `.open` flag that the source dispatch
+    # below reads; `key` exposes the active tab's label in session state so
     # AppTest can drive tab switches (it has no tab-selection API of its own).
     on_change="rerun",
     key="input_tabs",
@@ -831,37 +719,12 @@ with upload_tab:
         st.audio(uploaded_file, format=_media_mime(uploaded_file.name))
 
 with record_tab:
-    # No st.audio preview here, unlike the other three tabs. st.audio_input is not
+    # No st.audio preview here, unlike the Upload tab. st.audio_input is not
     # a bare capture control — it renders its own WaveSurfer player (interactive
     # waveform, timecode, Play/Pause as soon as a recording exists, and a
     # "Clear recording" action), so an st.audio call would stack a second,
     # visually different player on the same bytes.
     recorded_audio = st.audio_input("Record audio", label_visibility="collapsed")
-
-with youtube_tab:
-    youtube_url = st.text_input(
-        "YouTube URL",
-        placeholder="https://www.youtube.com/watch?v=...",
-        label_visibility="collapsed",
-    ).strip()
-    # Reserve the preview's slot here and run the fetch further down, after the
-    # controls have rendered. Streamlit paints top to bottom, so a fetch at this
-    # position leaves the language selector, every toggle, and Advanced options
-    # greyed out as stale for the length of the download. Writing back into this
-    # container keeps the preview, the loading skeleton, and both error alerts
-    # inside the tab where they belong.
-    youtube_slot = st.container()
-
-with url_tab:
-    file_url = st.text_input(
-        "Audio/video file URL",
-        # A worked example, not a restatement of the (collapsed) label — which is
-        # what this placeholder used to be, and the one remote tab that did not
-        # show the user what a valid value looks like.
-        placeholder="https://example.com/audio.mp3",
-        label_visibility="collapsed",
-    ).strip()
-    url_slot = st.container()  # Deferred like the YouTube preview above.
 
 # One bordered card around every control. They have been described as "grouped by
 # intent (input → output → advanced)" since they were written, but until now that
@@ -882,8 +745,8 @@ with st.container(border=True):
         st.markdown(
             "Primary language",
             help=(
-                # Not "an uploaded file": only one of the four input modes is an
-                # upload, and this selector governs all of them.
+                # Not "an uploaded file": only one of the two input modes is an
+                # upload, and this selector governs both.
                 "The primary language spoken in the audio. "
                 "By default, the primary language will be detected automatically."
             ),
@@ -976,83 +839,23 @@ with st.container(border=True):
         )
     initial_prompt = ", ".join(keyterms) or None
 
-# Remote fetches run here, below every control, and write back into the slots
-# reserved inside their tabs. Each is gated on tab visibility — not on the text
-# input above, which must always render: st.tabs computes hidden bodies by
-# default, so an ungated fetch downloads while the user is on another tab, and
-# Streamlit drops state for widgets it doesn't render, which would clear the
-# typed URL on every tab switch.
-youtube_audio: _RemoteAudio | None = None
-if youtube_tab.open and youtube_url and YOUTUBE_URL_RE.match(youtube_url):
-    # `with youtube_slot, st.skeleton(...)`, not `youtube_slot.skeleton()`. The
-    # skeleton's context-manager form does not redirect bare st.* calls into
-    # itself -- they land in the *parent* container -- so entering youtube_slot
-    # first is what keeps the st.audio preview and the two error alerts inside the
-    # tab. Calling youtube_slot.skeleton() alone would put the skeleton in the tab
-    # and strand everything else below the controls, which is the exact layout bug
-    # reserving the slot exists to avoid.
-    with youtube_slot, st.skeleton(height=AUDIO_PREVIEW_HEIGHT):
-        try:
-            data, filename, mime = _fetch_youtube_audio(youtube_url)
-            youtube_audio = _RemoteAudio(filename, data)
-            st.audio(data, format=mime)
-        # RuntimeError alongside DownloadError: the 500 MB stat gate inside
-        # _fetch_youtube_audio raises it, and without it here that already-tested
-        # guard surfaced as "Unexpected error" with a traceback attached. The URL
-        # path below already pairs its own RuntimeError with URLError this way.
-        except (yt_dlp.utils.DownloadError, RuntimeError) as e:
-            _error(f"Could not download from YouTube: {e}")
-        except Exception as e:
-            _error(f"Unexpected error: {e}")
-            st.exception(e)
-
-url_audio: _RemoteAudio | None = None
-if url_tab.open and file_url and URL_RE.match(file_url):
-    with url_slot, st.skeleton(height=AUDIO_PREVIEW_HEIGHT):  # Nested as above.
-        if YOUTUBE_URL_RE.match(file_url):
-            # Icon matches the YouTube tab's own, so the callout points at its
-            # destination. st.info has no default icon, same as st.error — see
-            # _error, which exists to keep that from being forgotten.
-            st.info(
-                "This looks like a YouTube URL — use the YouTube tab.",
-                icon=":material/smart_display:",
-            )
-        else:
-            try:
-                data, filename, mime = _fetch_url_audio(file_url)
-                url_audio = _RemoteAudio(filename, data)
-                st.audio(data, format=mime)
-            except (URLError, RuntimeError) as e:
-                _error(f"Could not download from URL: {e}")
-            except Exception as e:
-                _error(f"Unexpected error: {e}")
-                st.exception(e)
-
 # The tab the user is looking at wins, and that is not what a flat priority chain
-# does. Upload and Record declare their widgets in ungated tab bodies, so their
-# values are sticky across tab switches, while youtube_audio/url_audio exist only
-# while their own tab is open. A plain `uploaded_files or ... or url_audio` chain
-# therefore let an earlier upload outrank the URL whose preview was on screen:
-# the fetch ran, the player rendered, the button enabled — and Transcribe
-# silently transcribed the upload. Three things hid it. Both previews render at
-# once, so two plausible sources are visible; the results subheader is the only
-# signal of which one ran and it arrives after a full model pass; and
-# _transcribe's cache makes the second click return instantly, which reads as
-# "the URL happened to produce the same text".
+# does. Upload and Record declare their widgets in ungated tab bodies, so both
+# values are sticky across tab switches — an upload stays loaded while the user
+# records on the other tab. A plain `uploaded_files or [recorded_audio]` chain
+# would let that earlier upload outrank the recording whose player is on screen,
+# and the results subheader, which arrives after a full model pass, would be the
+# only sign of it.
 #
 # The old order is kept as the *fallback*, for when the open tab has no source of
 # its own — an empty Record tab with an earlier upload still loaded — so the
 # button never goes dead while a usable source exists. That leaves a deliberate
 # residue: in exactly that case Transcribe still runs the upload.
-tab_sources: tuple[tuple[Any, Sequence[UploadedFile | _RemoteAudio]], ...] = (
-    (upload_tab, uploaded_files),
-    (record_tab, [recorded_audio] if recorded_audio else []),
-    (youtube_tab, [youtube_audio] if youtube_audio else []),
-    (url_tab, [url_audio] if url_audio else []),
-)
-audio_sources = next(
-    (sources for tab, sources in tab_sources if tab.open and sources),
-    next((sources for _, sources in tab_sources if sources), []),
+audio_sources = _active_sources(
+    (
+        (upload_tab.open, uploaded_files),
+        (record_tab.open, [recorded_audio] if recorded_audio else []),
+    )
 )
 # Render outside the Advanced options expander so a disabled Transcribe button
 # always shows its reason, even when the expander holding the input is collapsed.
@@ -1082,5 +885,5 @@ if transcribe_clicked and audio_sources and not time_range_error:
     )
 
 # Wrapped in a fragment so transcript edits/downloads rerun only this section
-# instead of the whole script (which re-evaluates all four input tabs).
+# instead of the whole script (which re-evaluates both input tabs).
 st.fragment(_display_transcription)()

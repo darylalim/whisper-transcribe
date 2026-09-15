@@ -4,17 +4,17 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 
-Transcribe and translate audio and video **locally on your Mac** — no cloud, no uploads, no cost. This Streamlit application is powered by OpenAI's Whisper and accelerated on Apple Silicon with MLX (Apple's machine-learning framework). Bring your own files, record straight from the browser, or paste a YouTube or media URL.
+Transcribe and translate audio and video **locally on your Mac** — no cloud, no uploads, no cost. This Streamlit application is powered by OpenAI's Whisper and accelerated on Apple Silicon with MLX (Apple's machine-learning framework). Bring your own files or record straight from the browser.
 
-![Whisper Transcribe — the app's four input tabs (Upload, Record, YouTube, URL) above a bordered settings card holding the primary-language selector, a translate toggle, a Plain text / Subtitles transcript-format control, a no-verbatim toggle, and a collapsed Advanced options panel, with a Transcribe button below it](docs/screenshot.png)
+![Whisper Transcribe — the app's two input tabs (Upload, Record) above a bordered settings card holding the primary-language selector, a translate toggle, a Plain text / Subtitles transcript-format control, a no-verbatim toggle, and a collapsed Advanced options panel, with a Transcribe button below it](docs/screenshot.png)
 
 ## Features
 
 - **[OpenAI Whisper large-v3-turbo](https://huggingface.co/mlx-community/whisper-large-v3-turbo)** via [mlx-whisper](https://pypi.org/project/mlx-whisper/), accelerated on Apple Silicon
-- **On-device processing** — audio is transcribed entirely on your machine; nothing is uploaded (only the YouTube and URL input modes — plus the one-time model-weights download on first run — use the network)
+- **On-device processing** — audio is transcribed entirely on your machine; nothing is uploaded (only the one-time model-weights download on first run uses the network)
 - **100-language transcription** with auto-detect or manual selection
 - **Translate non-English audio to English**
-- **Four input modes** — multi-file upload (up to 500 MB per file), in-browser recording, YouTube links, and direct audio/video file URLs
+- **Two input modes** — multi-file upload (up to 500 MB per file) and in-browser recording
 - **Editable subtitle preview**, exportable as SRT (the standard subtitle file format)
 - **No verbatim** — skips hallucinated text over music, applause, and other non-speech audio
 - **Decode segments independently** — more robust on noisy or music-heavy audio
@@ -25,7 +25,7 @@ Transcribe and translate audio and video **locally on your Mac** — no cloud, n
 
 ## How it works
 
-You provide audio or video through one of four tabs (upload, record, YouTube, or URL). The app writes the audio to a temporary file and runs `mlx_whisper.transcribe()` with the Whisper large-v3-turbo model locally on Apple Silicon via MLX. The result is cached, rendered as editable plain text (or SRT when subtitles are enabled), and can be downloaded as `.txt` or `.srt`. See [CLAUDE.md](CLAUDE.md) for the full architecture.
+You provide audio or video through one of two tabs (upload or record). The app writes the audio to a temporary file and runs `mlx_whisper.transcribe()` with the Whisper large-v3-turbo model locally on Apple Silicon via MLX. The result is cached, rendered as editable plain text (or SRT when subtitles are enabled), and can be downloaded as `.txt` or `.srt`. See [CLAUDE.md](CLAUDE.md) for the full architecture.
 
 ![A completed transcription in Whisper Transcribe — a "Transcribed 1/1 file" status above a bordered result section holding the filename, the editable transcript, and a Download button to save it as .txt or .srt](docs/screenshot-result.png)
 
@@ -51,7 +51,7 @@ uv sync
 uv run streamlit run streamlit_app.py
 ```
 
-Upload one or more files (audio: `mp3, m4a, wav, opus`; video: `mp4, mov, webm, mkv`), record audio in-browser, paste a YouTube URL, or paste an audio/video file URL, then click **Transcribe**.
+Upload one or more files (audio: `mp3, m4a, wav, opus`; video: `mp4, mov, webm, mkv`) or record audio in-browser, then click **Transcribe**.
 
 > **First run:** the first time you transcribe, the Whisper large-v3-turbo weights (~1.5 GB) are downloaded from Hugging Face and cached locally, so the first transcription takes longer and needs an internet connection. Subsequent transcriptions run offline.
 
@@ -85,8 +85,6 @@ CI runs the same tools on every push to `main` and on pull requests — it uses 
 - **`ffmpeg` not found** — install it with `brew install ffmpeg` and verify with `ffmpeg -version`. FFmpeg is required for decoding audio and video.
 - **Intel Mac / non–Apple Silicon** — `mlx-whisper` requires Apple Silicon and will not run on Intel Macs.
 - **Long pause on the first transcription** — the model weights (~1.5 GB) are downloading from Hugging Face (see the *First run* note above); this needs a network connection and only happens once.
-- **YouTube download fails** — this usually means `yt-dlp` is out of date; update it with `uv lock --upgrade-package yt-dlp && uv sync`. The JavaScript runtime `yt-dlp` needs for YouTube ([Deno](https://deno.com)) is installed with the project's dependencies, so there is nothing else to install.
-- **Remote download rejected** — both remote fetches are capped at 500 MB: direct audio/video URLs, and YouTube audio (a multi-hour livestream VOD can exceed it).
 - **Download is missing your last edit** — the transcript box commits when it loses focus, so click outside it (or press Ctrl/Cmd+Enter) before pressing **Download**.
 
 ## License
