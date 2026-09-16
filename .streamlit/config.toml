@@ -4,9 +4,10 @@ maxUploadSize = 500
 # macOS-native theme. The app only runs on a Mac (MLX/Metal), so it dresses as a
 # macOS window: Apple's dark-mode system greys for the surfaces, the system accent
 # blue where Streamlit paints its primary, systemRed for errors, capsule buttons.
-# Its functional job is to split "go" from "failed": stock Streamlit's primary is
-# the same red (#ff4b4b) as st.error, so Transcribe, the active tab and the chosen
-# format read as alerts. Blue sits 153 degrees from the error red.
+# Its functional job is to split "go" from "failed": stock Streamlit's primary
+# (#ff4b4b) is the same hue as its error red, so Transcribe, the active tab and
+# the chosen format read as alerts. Blue sits 153 degrees (dark) / 144 (light)
+# from the error red.
 #
 # Both [theme.light] and [theme.dark] are defined so the System / Light / Dark
 # switcher in the app's menu survives; a [theme]-only custom theme locks one mode.

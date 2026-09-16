@@ -247,29 +247,72 @@ def test_format_list_fits_the_dropzone_hint():
 CONFIG_PATH = Path(__file__).resolve().parent.parent / ".streamlit" / "config.toml"
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 THEME_MODES = ("light", "dark")
-# Every [theme] key that exists at the streamlit>=1.59 floor, read from
-# `streamlit.config._config_options_template` under a 1.59.0 install. The three
-# chart* keys are top-level-only there (they reach [theme.light]/[theme.dark] in
-# 1.60), which is why they are kept out of the subsection allowlist below.
 _SEMANTIC = ("red", "orange", "yellow", "green", "blue", "violet", "gray")
-THEME_COLOR_KEYS_AT_FLOOR = frozenset(
+# Every [theme] key that exists at the streamlit>=1.59 floor, read from
+# `streamlit.config._config_options_template` under a 1.59.0 install: 52 keys on
+# the top-level table, and the same 42 on each of [theme.light], [theme.dark],
+# [theme.sidebar] and the two [theme.<mode>.sidebar] tables -- the ten in
+# THEME_TOP_LEVEL_ONLY_KEYS are accepted nowhere else. This is what Streamlit
+# *reads*; what the theme is *allowed* to set (no typography) is the separate
+# THEME_TYPOGRAPHY_KEYS policy and its own test.
+THEME_KEYS_AT_FLOOR = frozenset(
     {
+        "base",
         "primaryColor",
         "backgroundColor",
         "secondaryBackgroundColor",
         "textColor",
         "borderColor",
         "linkColor",
+        "linkUnderline",
         "codeBackgroundColor",
         "codeTextColor",
         "dataframeBorderColor",
         "dataframeHeaderBackgroundColor",
+        "baseRadius",
+        "buttonRadius",
+        "showWidgetBorder",
+        "showSidebarBorder",
+        "font",
+        "headingFont",
+        "codeFont",
+        "fontFaces",
+        "baseFontSize",
+        "baseFontWeight",
+        "codeFontSize",
+        "codeFontWeight",
+        "headingFontSizes",
+        "headingFontWeights",
+        "metricValueFontSize",
+        "metricValueFontWeight",
+        "chartCategoricalColors",
+        "chartSequentialColors",
+        "chartDivergingColors",
     }
     | {f"{c}{suffix}" for c in _SEMANTIC for suffix in ("Color", "BackgroundColor", "TextColor")}
 )
-THEME_OTHER_KEYS_AT_FLOOR = frozenset(
-    {"base", "baseRadius", "buttonRadius", "showWidgetBorder", "showSidebarBorder", "linkUnderline"}
+THEME_TOP_LEVEL_ONLY_KEYS = frozenset(
+    {
+        "base",
+        "baseFontSize",
+        "baseFontWeight",
+        "fontFaces",
+        "metricValueFontSize",
+        "metricValueFontWeight",
+        "showSidebarBorder",
+        "chartCategoricalColors",
+        "chartSequentialColors",
+        "chartDivergingColors",
+    }
 )
+THEME_TABLE_KEYS_AT_FLOOR = {
+    "theme": THEME_KEYS_AT_FLOOR,
+    **{
+        name: THEME_KEYS_AT_FLOOR - THEME_TOP_LEVEL_ONLY_KEYS
+        for name in ("theme.light", "theme.dark", "theme.sidebar")
+        + tuple(f"theme.{m}.sidebar" for m in THEME_MODES)
+    },
+}
 # Layout constants, not colours: every pixel measurement in CLAUDE.md (button
 # widths, column widths, the dropzone hint's 357px, the sidebar label that was
 # renamed because it wrapped) depends on the bundled Source Sans at 16px, and a
@@ -290,30 +333,51 @@ THEME_TYPOGRAPHY_KEYS = frozenset(
         "metricValueFontWeight",
     }
 )
-# Streamlit's stock primary, which is also its stock error red: the collision the
-# theme exists to fix.
+# Streamlit's stock primary, red in both modes, and its stock redColor per mode
+# (one step darker in dark). The collision the theme exists to fix is that the
+# primary and the error red are the same hue.
 STOCK_PRIMARY = "#ff4b4b"
+STOCK_RED = {"light": "#ff4b4b", "dark": "#ff2b2b"}
 
 
 def _theme():
     return tomllib.loads(CONFIG_PATH.read_text())["theme"]
 
 
-def _theme_tables(theme):
-    """Yield (name, table) for [theme] and every [theme.<mode>[.sidebar]] present."""
-    yield "theme", {k: v for k, v in theme.items() if not isinstance(v, dict)}
-    for mode in THEME_MODES:
-        section = theme.get(mode, {})
-        yield f"theme.{mode}", {k: v for k, v in section.items() if not isinstance(v, dict)}
-        if "sidebar" in section:
-            yield f"theme.{mode}.sidebar", section["sidebar"]
-    if "sidebar" in theme:
-        yield "theme.sidebar", theme["sidebar"]
+def _scalars(table):
+    return {k: v for k, v in table.items() if not isinstance(v, dict)}
+
+
+def _theme_tables(table, path="theme"):
+    """Yield (path, scalar entries) for [theme] and every nested table under it.
+
+    Walks every dict-valued entry rather than a fixed list of names, so a typo'd
+    subsection ([theme.dark.sidebr]) reaches the key check instead of being
+    skipped.
+    """
+    yield path, _scalars(table)
+    for key, value in table.items():
+        if isinstance(value, dict):
+            yield from _theme_tables(value, f"{path}.{key}")
+
+
+def _mode_colours(theme, mode):
+    # Streamlit merges the top-level [theme] table into each mode, so a colour set
+    # once under [theme] applies to both; model the merge rather than require the
+    # colour to be repeated per mode.
+    return {**_scalars(theme), **_scalars(theme.get(mode, {}))}
+
+
+def _rgb(hex_color):
+    return tuple(int(hex_color[i : i + 2], 16) / 255 for i in (1, 3, 5))
+
+
+def _hex(rgb):
+    return "#%02x%02x%02x" % tuple(round(c * 255) for c in rgb)
 
 
 def _luminance(hex_color):
-    channels = [int(hex_color[i : i + 2], 16) / 255 for i in (1, 3, 5)]
-    linear = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    linear = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in _rgb(hex_color)]
     return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
 
 
@@ -322,53 +386,100 @@ def _contrast(a, b):
     return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
 
 
-def _hue(hex_color):
-    r, g, b = (int(hex_color[i : i + 2], 16) / 255 for i in (1, 3, 5))
+def _hsl(hex_color):
+    r, g, b = _rgb(hex_color)
     high, low = max(r, g, b), min(r, g, b)
+    lightness = (high + low) / 2
     if high == low:
-        return None
+        return None, 0.0, lightness
+    d = high - low
+    saturation = d / (2 - high - low) if lightness > 0.5 else d / (high + low)
     if high == r:
-        h = ((g - b) / (high - low)) % 6
+        hue = ((g - b) / d) % 6
     elif high == g:
-        h = (b - r) / (high - low) + 2
+        hue = (b - r) / d + 2
     else:
-        h = (r - g) / (high - low) + 4
-    return (h * 60) % 360
+        hue = (r - g) / d + 4
+    return (hue * 60) % 360, saturation, lightness
+
+
+def _shift_lightness(hex_color, delta):
+    """Streamlit's lighten/darken: HSL lightness +- delta on a 0-1 scale, emitted as
+    hsla() with the hue rounded to whole degrees and s/l to whole percent."""
+    hue, saturation, lightness = _hsl(hex_color)
+    hue = round(hue or 0) % 360
+    saturation, lightness = (
+        round(saturation * 100) / 100,
+        round(min(1, max(0, lightness + delta)) * 100) / 100,
+    )
+    chroma = (1 - abs(2 * lightness - 1)) * saturation
+    x = chroma * (1 - abs((hue / 60) % 2 - 1))
+    sector = int(hue // 60) % 6
+    r, g, b = [
+        (chroma, x, 0),
+        (x, chroma, 0),
+        (0, chroma, x),
+        (0, x, chroma),
+        (x, 0, chroma),
+        (chroma, 0, x),
+    ][sector]
+    m = lightness - chroma / 2
+    return _hex((r + m, g + m, b + m))
+
+
+def _over(hex_color, alpha, hex_background):
+    fg, bg = _rgb(hex_color), _rgb(hex_background)
+    return _hex(tuple(alpha * fg[i] + (1 - alpha) * bg[i] for i in range(3)))
 
 
 def _hue_distance(a, b):
-    ha, hb = _hue(a), _hue(b)
+    ha, hb = _hsl(a)[0], _hsl(b)[0]
     assert ha is not None and hb is not None, "achromatic primary or red"
     d = abs(ha - hb)
     return min(d, 360 - d)
 
 
+def _rendered_alert(colours, mode):
+    """The pair st.error paints: redTextColor on redBackgroundColor, both derived
+    from redColor when not set explicitly -- the frontend lightens the red 15% on
+    a dark page and darkens it 15% on a light one (light = page luminance > 0.5),
+    and tints the box with the red at 20% (dark) / 10% (light) over the page."""
+    page = colours["backgroundColor"]
+    red = colours.get("redColor", STOCK_RED[mode])
+    light = _luminance(page) > 0.5
+    text = colours.get("redTextColor", _shift_lightness(red, -0.15 if light else 0.15))
+    box = colours.get("redBackgroundColor", _over(red, 0.1 if light else 0.2, page))
+    return text, box
+
+
 def test_theme_defines_both_modes_and_colours_them_completely():
-    # A custom theme with only [theme] removes the System / Light / Dark switcher
-    # from Streamlit's menu and locks the app to one mode. Both subsections, each
-    # carrying the four base colours, is what keeps the switcher.
+    # The frontend keeps the System / Light / Dark switcher as long as *either*
+    # [theme.light] or [theme.dark] carries a value; this repo's rule is stricter
+    # -- both defined, each resolving the four base colours after the [theme]
+    # merge -- so one mode can never ship Streamlit's stock palette beside the
+    # themed other.
     theme = _theme()
     for mode in THEME_MODES:
-        assert mode in theme, f"[theme.{mode}] is missing; the theme switcher needs both modes"
+        assert _scalars(theme.get(mode, {})), f"[theme.{mode}] is missing or empty"
         assert {"primaryColor", "backgroundColor", "secondaryBackgroundColor", "textColor"} <= set(
-            theme[mode]
+            _mode_colours(theme, mode)
         )
 
 
 def test_theme_uses_only_floor_keys_and_six_digit_hex():
-    # Streamlit logs an unknown key or an invalid colour as a warning and falls
-    # back to stock, so a typo here ships the stock red with a green gate. Every
-    # key must exist at the 1.59.0 floor, and every colour must be #rrggbb --
-    # names and rgba() would pass Streamlit but not the contrast arithmetic below.
+    # An unknown key -- or a known key in a table Streamlit does not read it from
+    # -- is logged as a warning and dropped, so a typo would ship stock under a
+    # green gate; an unknown *table* is dropped the same way. An invalid colour
+    # string is quieter still: the server accepts it without a word and only the
+    # browser console drops it, so the #rrggbb check below is the sole guard --
+    # and names or rgba() would break the contrast arithmetic in any case.
     for name, table in _theme_tables(_theme()):
+        allowed = THEME_TABLE_KEYS_AT_FLOOR.get(name)
+        assert allowed is not None, f"[{name}] is not a table Streamlit reads"
         for key, value in table.items():
+            assert key in allowed, f"[{name}] {key} is not read from that table at 1.59.0"
             if key.endswith("Color"):
-                assert key in THEME_COLOR_KEYS_AT_FLOOR, (
-                    f"[{name}] {key} is not a 1.59.0 colour key"
-                )
                 assert HEX_COLOR.match(value), f"[{name}] {key} = {value!r} is not #rrggbb"
-            else:
-                assert key in THEME_OTHER_KEYS_AT_FLOOR, f"[{name}] {key} is not a 1.59.0 theme key"
 
 
 def test_theme_sets_no_typography():
@@ -378,27 +489,42 @@ def test_theme_sets_no_typography():
 
 @pytest.mark.parametrize("mode", THEME_MODES)
 def test_theme_contrast(mode):
-    colours = {**_theme().get(mode, {})}
-    colours.pop("sidebar", None)
-    bg, secondary = colours["backgroundColor"], colours["secondaryBackgroundColor"]
+    colours = _mode_colours(_theme(), mode)
+    page, well = colours["backgroundColor"], colours["secondaryBackgroundColor"]
     text, primary = colours["textColor"], colours["primaryColor"]
-    red = colours.get("redColor", STOCK_PRIMARY)
     # Body text sits on both backgrounds: the page, and the text area / dropzone /
     # selectbox wells on the secondary.
-    assert _contrast(text, bg) >= 4.5
-    assert _contrast(text, secondary) >= 4.5
-    # primaryColor is also *text* -- the active tab label -- and st.error's red is.
-    assert _contrast(primary, bg) >= 4.5
-    assert _contrast(red, bg) >= 4.5
+    assert _contrast(text, page) >= 4.5
+    assert _contrast(text, well) >= 4.5
+    # primaryColor is also *text*: the active tab label sits on the page, and the
+    # selected Transcript format option sits in the sidebar -- whose background is
+    # the secondary colour -- on a cell tinted 10% primary. That second pair cannot
+    # reach 4.5 with a primary that also holds a white button label (see below),
+    # so it is held at the 3:1 component floor; the tab label carries the text
+    # standard.
+    assert _contrast(primary, page) >= 4.5
+    assert _contrast(primary, _over(primary, 0.1, well)) >= 3.0
     # The primary button always paints a white label. No blue can put that label
     # at 4.5 while primary-as-text stays at 4.5 on a page brighter than #040507
     # (the two bounds cross at luminance 0.183 vs 0.227); the theme takes the
     # text side and holds the label at the 3:1 large-text/component floor, up
     # from stock's 3.3, and hover darkens the fill, which lifts it past 6.
     assert _contrast("#ffffff", primary) >= 3.0
+    # st.error paints the *derived* red text on the *derived* tint, never the raw
+    # redColor on the page; the status widget's error icon paints the same derived
+    # text on the page.
+    alert_text, alert_box = _rendered_alert(colours, mode)
+    assert _contrast(alert_text, alert_box) >= 4.5
+    assert _contrast(alert_text, page) >= 4.5
     # Hairline borders by design (Apple separators, not 3:1 boundaries), but a
-    # border that vanished into the page would drop every field edge at once.
-    assert _contrast(colours["borderColor"], bg) >= 1.5
+    # border that vanished into either surface would drop every field edge at
+    # once -- and most bordered fields (selectbox, text input, expander, the
+    # Keyterms multiselect) sit on the sidebar, whose background is the well.
+    # Unset, Streamlit derives the border from textColor at 20% alpha, which the
+    # config's shed order names as the first thing to drop; nothing to check then.
+    if "borderColor" in colours:
+        assert _contrast(colours["borderColor"], page) >= 1.5
+        assert _contrast(colours["borderColor"], well) >= 1.5
 
 
 @pytest.mark.parametrize("mode", THEME_MODES)
@@ -406,8 +532,8 @@ def test_theme_primary_is_not_the_error_hue(mode):
     # The defect the theme fixes: stock's primary and its error red are the same
     # hue (distance 0), so Transcribe, the active tab and the chosen format read
     # as alerts. Reverting primaryColor to the stock red fails here and only here.
-    colours = _theme()[mode]
-    assert _hue_distance(colours["primaryColor"], colours.get("redColor", STOCK_PRIMARY)) >= 90
+    colours = _mode_colours(_theme(), mode)
+    assert _hue_distance(colours["primaryColor"], colours.get("redColor", STOCK_RED[mode])) >= 90
 
 
 # --- _transcribe ---
