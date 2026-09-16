@@ -115,7 +115,7 @@ LANGUAGE_CODES: list[str | None] = [None] + sorted(LANGUAGES, key=lambda c: LANG
 # `centered` column -- the narrow column of a 704px content box, a
 # calc(25% - 16px) flex basis plus half the 16px of leftover, i.e.
 # (704 - 2*16) / 4 -- and kept so the buttons render exactly as before. Each
-# main column measures 714px at a 1920px viewport (708.5 once a result makes
+# main column measures 722px at a 1920px viewport (716.5 once a result makes
 # the page scroll and Chrome's thin scrollbar takes its 11px), so it is the
 # same button in the same amount of room. The two do not share a right edge --
 # Download sits inside the results card, whose 15px padding plus 1px border
@@ -132,8 +132,8 @@ BUTTON_WIDTH = 168
 TRANSCRIPT_HEIGHT = 360
 # What the results column shows whenever it has no results -- before the first
 # batch, and again on the runs after one in which every file failed -- except on
-# the run that just rendered that batch's own failure alerts (see
-# _display_transcription).
+# the run that just rendered that batch's own failure alerts. Rendered at the
+# call site, not inside _display_transcription: see the results_col block.
 EMPTY_RESULTS_HINT = ":material/subtitles: Transcripts appear here"
 PAGE_CONFIG: dict[str, Any] = {
     "page_title": "Whisper Transcribe",
@@ -617,31 +617,8 @@ def _transcription_kwargs(
     }
 
 
-def _display_transcription(*, batch_just_ran: bool = False) -> None:
+def _display_transcription() -> None:
     transcriptions = st.session_state.get("transcription") or []
-    if not transcriptions:
-        if batch_just_ran:
-            # This run's _handle_transcription rendered its own status and
-            # failure alerts directly above: every file failed (or a rerun
-            # interrupted the batch before its first file). A "nothing has
-            # happened here" hint under them would be wrong, so this run renders
-            # nothing. On every later run those alerts are gone and the list is
-            # still [] -- the pre-loop publish leaves it that way -- so the hint
-            # returns rather than leaving the column blank for the rest of the
-            # session, which is what keying on the *key's* absence did.
-            return
-        # Empty state for the results column. In a single column the output could
-        # only ever land below the input; beside it, a first-time visitor meets
-        # half a screen of nothing with no sign of what fills it. One muted line
-        # in a 54px bordered box at the top of the column -- level with the tab
-        # strip across the gap, not with the 68px dropzone below it -- in exactly
-        # the slot the st.status box takes once a run starts, so the swap is
-        # positionally seamless. text_alignment on the caption, not
-        # horizontal_alignment on the box: the caption is a width="stretch"
-        # element, so centring *it* changes nothing.
-        with st.container(border=True):
-            st.caption(EMPTY_RESULTS_HINT, text_alignment="center")
-        return
     # Namespaces the widget keys below by batch; see _handle_transcription.
     batch = st.session_state.get("batch_id", 0)
     for i, data in enumerate(transcriptions):
@@ -796,23 +773,22 @@ with st.sidebar:
     initial_prompt = ", ".join(keyterms) or None
 
 # Input on the left, results on the right. Two equal columns rather than one
-# stacked wide column: at a 1920px viewport each measures 714px (722 at the 16px
-# default gap; 708.5 once a result makes the page scroll in Chrome and its thin
-# scrollbar takes 11px), within ~20px of the 704px content box the whole app
-# had as a single `centered` column, so the 168px buttons and every alignment
-# measured for that layout carry over -- and a transcript wraps at ~110
-# characters per line on the 680px text area (measured; 674.5px and still ~110
-# once the scrollbar bites, ~138 with the sidebar collapsed) instead of ~235
-# across a 1460px content box. The split is also
-# what puts the results beside the input: stacked, a transcript started below
-# the fold of a 1080p display before the change. gap="medium" (32px) rather than
-# the 16px default because that default equals the vertical gap between widgets
-# inside a column, which made the Transcribe button read as attached to the
-# results card beside it. The cost of the column being fluid is that the
-# dropzone hint is no longer viewport-independent: see "Accepted formats" in
-# CLAUDE.md for the ~1472px viewport below which it truncates (the slot it fills
-# is 357px at 1472 and 356 at 1470, one short of the text; measured).
-input_col, results_col = st.columns(2, gap="medium")
+# stacked wide column: at a 1920px viewport each measures 722px (716.5 once a
+# result makes the page scroll in Chrome and its thin scrollbar takes 11px),
+# within ~20px of the 704px content box the whole app had as a single
+# `centered` column, so the 168px buttons and every alignment measured for that
+# layout carry over -- and a transcript wraps at ~110 characters per line on the
+# ~683px text area (measured; ~138 with the sidebar collapsed) instead of ~235
+# across a 1460px content box. The split is also what puts the results beside
+# the input: stacked, a transcript started below the fold of a 1080p display
+# before the change. gap="small" is the 16px default, spelled out because it was
+# "medium" for a while: 32px separates the two panes more clearly than the 16px
+# the widgets inside them use, but it costs each column 8px, and the dropzone
+# hint -- no longer viewport-independent now that its column is fluid -- missed
+# fitting a 13-inch MacBook Air's 1470px viewport by exactly 1px at 32px. At
+# 16px it fits there; see "Accepted formats" in CLAUDE.md for the threshold
+# below which it still truncates.
+input_col, results_col = st.columns(2, gap="small")
 
 with input_col:
     upload_tab, record_tab = st.tabs(
@@ -895,10 +871,27 @@ with results_col:
             ),
         )
 
-    # Wrapped in a fragment so transcript edits/downloads rerun only this section
-    # instead of the whole script (which re-evaluates the sidebar and both input
-    # tabs). The flag is a fragment argument: st.fragment stores the call's
-    # arguments and replays them on a fragment-only rerun, and it is stale there
-    # by design -- a fragment rerun is a text-area edit or a download, neither of
-    # which exists while the column is empty.
-    st.fragment(_display_transcription)(batch_just_ran=batch_just_ran)
+    if st.session_state.get("transcription"):
+        # Wrapped in a fragment so transcript edits/downloads rerun only this
+        # section instead of the whole script (which re-evaluates the sidebar
+        # and both input tabs). Registered only when there is something to
+        # rerun: the empty state below is decided here, at the call site, rather
+        # than inside the fragment behind a replayed argument.
+        st.fragment(_display_transcription)()
+    elif not batch_just_ran:
+        # Empty state for the results column. In a single column the output could
+        # only ever land below the input; beside it, a first-time visitor meets
+        # half a screen of nothing with no sign of what fills it. One muted line
+        # in a 54px bordered box at the top of the column -- level with the tab
+        # strip across the gap, not with the 68px dropzone below it -- in exactly
+        # the slot the st.status box takes once a run starts, so the swap is
+        # positionally seamless. Not on the run that just rendered a batch's own
+        # status and failure alerts, when every file failed: a "nothing has
+        # happened here" line under them would be wrong. On every later run those
+        # alerts are gone and the list is still [] -- the pre-loop publish leaves
+        # it that way -- so the hint returns rather than leaving the column blank
+        # for the rest of the session. text_alignment on the caption, not
+        # horizontal_alignment on the box: the caption is a width="stretch"
+        # element, so centring *it* changes nothing.
+        with st.container(border=True):
+            st.caption(EMPTY_RESULTS_HINT, text_alignment="center")

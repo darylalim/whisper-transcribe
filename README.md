@@ -51,7 +51,7 @@ uv sync
 uv run streamlit run streamlit_app.py
 ```
 
-Upload one or more files (audio: `mp3, m4a, wav, opus`; video: `mp4, mov, webm, mkv`) or record audio in-browser, then click **Transcribe**. Transcripts appear beside the input, one editable section per file. The app opens in Streamlit's wide layout with the settings in a sidebar and is laid out for a desktop window: the dropzone's format list is shown in full when the window is at least ~1480 px wide with the sidebar open (in a narrower window it is abbreviated with an ellipsis — every format is still accepted — and collapsing the sidebar restores it down to ~1180 px); below ~770 px the sidebar collapses on its own, and at 640 px or narrower the two panels stack.
+Upload one or more files (audio: `mp3, m4a, wav, opus`; video: `mp4, mov, webm, mkv`) or record audio in-browser, then click **Transcribe**. Transcripts appear beside the input, one editable section per file. The app opens in Streamlit's wide layout with the settings in a sidebar and is laid out for a desktop window: the dropzone's format list is shown in full when the window is at least about 1460 px wide with the sidebar open (in a narrower window it is abbreviated with an ellipsis — every format is still accepted — and collapsing the sidebar restores it down to about 1160 px); below ~770 px the sidebar collapses on its own, and at 640 px or narrower the two panels stack.
 
 > **First run:** the first time you transcribe, the Whisper large-v3-turbo weights (~1.5 GB) are downloaded from Hugging Face and cached locally, so the first transcription takes longer and needs an internet connection. Subsequent transcriptions run offline.
 

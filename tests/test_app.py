@@ -230,8 +230,8 @@ def test_format_list_fits_the_dropzone_hint():
     # the list; each entry costs ~31-40px). Under the old `centered` layout the
     # span had a fixed 571px at any desktop width. It is fluid now -- the input
     # column is half the main area -- so this length proxy guards the list, not
-    # the viewport: with the sidebar open the slot the span fills is 581px at
-    # 1920 and 357px at 1472, and from 1470 down the list loses entries to an
+    # the viewport: with the sidebar open the slot the span fills is 589px at
+    # 1920 and 357px at 1456, and from 1454 down the list loses entries to an
     # ellipsis (MKV at 1440; measured in Chrome). No test can see that half;
     # CLAUDE.md "Accepted formats" carries the numbers.
     hint = ", ".join(f.upper() for f in AUDIO_FORMATS + VIDEO_FORMATS)
@@ -855,42 +855,13 @@ def test_transcription_kwargs_passes_through_unchanged_fields():
 
 
 def test_display_transcription_no_session_state(mock_st):
+    # A results renderer and nothing more: the empty-state hint is decided at
+    # the call site (see test_empty_results_column_shows_the_hint_until_a_result_exists),
+    # so with nothing stored this renders nothing at all.
     _display_transcription()
     mock_st.text_area.assert_not_called()
-    # The empty state: one bordered box holding the centred hint, and nothing
-    # else. text_alignment on the caption rather than horizontal_alignment on
-    # the container, which centres a width="stretch" element to no effect.
-    mock_st.container.assert_called_once_with(border=True)
-    mock_st.caption.assert_called_once_with(EMPTY_RESULTS_HINT, text_alignment="center")
-
-
-def test_display_transcription_with_results_renders_no_hint(mock_st):
-    mock_st.session_state["transcription"] = [_make_transcription()]
-    _display_transcription()
-    mock_st.caption.assert_not_called()
-
-
-def test_display_transcription_all_failed_batch_renders_no_hint_on_its_own_run(mock_st):
-    # _handle_transcription publishes [] before its loop, so an all-failed batch
-    # leaves an empty list behind. On the run that rendered that batch's status
-    # and failure alerts, a hint saying nothing has happened would sit directly
-    # under them; the call site passes batch_just_ran=True and the column
-    # renders nothing more.
-    mock_st.session_state["transcription"] = []
-    _display_transcription(batch_just_ran=True)
-    mock_st.caption.assert_not_called()
     mock_st.container.assert_not_called()
-
-
-def test_display_transcription_empty_list_renders_the_hint_on_later_runs(mock_st):
-    # The same [] on any later run -- the alerts are gone, the list is still
-    # empty -- gets the hint back. A first draft keyed the hint on the *key's*
-    # absence and left the column blank for the rest of the session after a
-    # failed batch.
-    mock_st.session_state["transcription"] = []
-    _display_transcription()
-    mock_st.container.assert_called_once_with(border=True)
-    mock_st.caption.assert_called_once_with(EMPTY_RESULTS_HINT, text_alignment="center")
+    mock_st.caption.assert_not_called()
 
 
 def test_display_transcription_shows_transcript(mock_st):
@@ -1393,6 +1364,11 @@ def test_transcribe_button_has_icon_and_is_disabled_without_audio():
     assert button.label == "Transcribe"
     assert button.icon == ":material/graphic_eq:"
     assert button.disabled is True
+    # The button element does not expose `type`, but its proto does. Its
+    # width=BUTTON_WIDTH is the one thing about it nothing can pin: width lives
+    # on the outer Element proto, which AppTest's Button node discards, and the
+    # call is module-level, outside mock_st's reach.
+    assert button.proto.type == "primary"
 
 
 def test_invalid_time_range_shows_inline_error():
@@ -1437,10 +1413,12 @@ def test_settings_live_in_the_sidebar():
         "Decode independently",
     ]
     assert [s.label for s in sidebar.segmented_control] == ["Transcript format"]
-    # .status, not .expander: AppTest files every expandable block that carries
-    # an icon under Status (element_tree.py, `if block.expandable.icon`), and
-    # the Advanced options expander has one. at.expander is empty for this app.
-    assert [e.label for e in sidebar.status] == ["Advanced options"]
+    # Both accessors, because AppTest files every expandable block that carries
+    # an icon under Status (element_tree.py, `if block.expandable.icon`) and the
+    # Advanced options expander has one -- so today it is sidebar.status[0] and
+    # at.expander is empty. Reading both keeps the assertion about the widget,
+    # not about that classification, should upstream ever correct it.
+    assert [e.label for e in (*sidebar.status, *sidebar.expander)] == ["Advanced options"]
     assert [t.label for t in sidebar.text_input] == ["Time range"]
     assert [m.label for m in sidebar.multiselect] == ["Keyterms"]
     assert [b.label for b in sidebar.button] == []
@@ -1509,7 +1487,12 @@ def test_sidebar_is_three_tiers_separated_by_two_seams():
             return row.type
         return getattr(row, "label", None) or getattr(row, "value", None)
 
-    assert [(type(r).__name__, _name(r)) for r in rows] == [
+    def _kind(row):
+        # AppTest files an icon-carrying expander as Status; read it as the
+        # expander it is, so an upstream fix to that filing changes nothing here.
+        return "Expander" if type(row).__name__ in ("Status", "Expander") else type(row).__name__
+
+    assert [(_kind(r), _name(r)) for r in rows] == [
         ("Subheader", "Settings"),
         ("Selectbox", "Primary language"),
         ("UnknownElement", "space"),
@@ -1517,7 +1500,7 @@ def test_sidebar_is_three_tiers_separated_by_two_seams():
         ("ButtonGroup", "Transcript format"),
         ("Toggle", "No verbatim"),
         ("UnknownElement", "space"),
-        ("Status", "Advanced options"),
+        ("Expander", "Advanced options"),
     ]
 
 
