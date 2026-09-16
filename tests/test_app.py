@@ -1,3 +1,5 @@
+import re
+import tomllib
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
@@ -230,12 +232,182 @@ def test_format_list_fits_the_dropzone_hint():
     # the list; each entry costs ~31-40px). Under the old `centered` layout the
     # span had a fixed 571px at any desktop width. It is fluid now -- the input
     # column is half the main area -- so this length proxy guards the list, not
-    # the viewport: with the sidebar open the slot the span fills is 589px at
-    # 1920 and 357px at 1456, and from 1454 down the list loses entries to an
-    # ellipsis (MKV at 1440; measured in Chrome). No test can see that half;
-    # CLAUDE.md "Accepted formats" carries the numbers.
+    # the viewport: with the sidebar open the slot the span fills is 587px at
+    # 1920 and 357px at 1460, and from 1458 down the list loses entries to an
+    # ellipsis (MKV at 1440; measured in Chrome, with the theme's 1px widget
+    # border on the dropzone -- stock's borderless dropzone fit down to 1456).
+    # No test can see that half; CLAUDE.md "Accepted formats" carries the
+    # numbers.
     hint = ", ".join(f.upper() for f in AUDIO_FORMATS + VIDEO_FORMATS)
     assert len(hint) <= 60, f"{hint!r} will truncate in the uploader dropzone"
+
+
+# --- theme (.streamlit/config.toml) ---
+
+CONFIG_PATH = Path(__file__).resolve().parent.parent / ".streamlit" / "config.toml"
+HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+THEME_MODES = ("light", "dark")
+# Every [theme] key that exists at the streamlit>=1.59 floor, read from
+# `streamlit.config._config_options_template` under a 1.59.0 install. The three
+# chart* keys are top-level-only there (they reach [theme.light]/[theme.dark] in
+# 1.60), which is why they are kept out of the subsection allowlist below.
+_SEMANTIC = ("red", "orange", "yellow", "green", "blue", "violet", "gray")
+THEME_COLOR_KEYS_AT_FLOOR = frozenset(
+    {
+        "primaryColor",
+        "backgroundColor",
+        "secondaryBackgroundColor",
+        "textColor",
+        "borderColor",
+        "linkColor",
+        "codeBackgroundColor",
+        "codeTextColor",
+        "dataframeBorderColor",
+        "dataframeHeaderBackgroundColor",
+    }
+    | {f"{c}{suffix}" for c in _SEMANTIC for suffix in ("Color", "BackgroundColor", "TextColor")}
+)
+THEME_OTHER_KEYS_AT_FLOOR = frozenset(
+    {"base", "baseRadius", "buttonRadius", "showWidgetBorder", "showSidebarBorder", "linkUnderline"}
+)
+# Layout constants, not colours: every pixel measurement in CLAUDE.md (button
+# widths, column widths, the dropzone hint's 357px, the sidebar label that was
+# renamed because it wrapped) depends on the bundled Source Sans at 16px, and a
+# Google Fonts URL would call out from an app that promises to run locally.
+THEME_TYPOGRAPHY_KEYS = frozenset(
+    {
+        "font",
+        "headingFont",
+        "codeFont",
+        "fontFaces",
+        "baseFontSize",
+        "baseFontWeight",
+        "codeFontSize",
+        "codeFontWeight",
+        "headingFontSizes",
+        "headingFontWeights",
+        "metricValueFontSize",
+        "metricValueFontWeight",
+    }
+)
+# Streamlit's stock primary, which is also its stock error red: the collision the
+# theme exists to fix.
+STOCK_PRIMARY = "#ff4b4b"
+
+
+def _theme():
+    return tomllib.loads(CONFIG_PATH.read_text())["theme"]
+
+
+def _theme_tables(theme):
+    """Yield (name, table) for [theme] and every [theme.<mode>[.sidebar]] present."""
+    yield "theme", {k: v for k, v in theme.items() if not isinstance(v, dict)}
+    for mode in THEME_MODES:
+        section = theme.get(mode, {})
+        yield f"theme.{mode}", {k: v for k, v in section.items() if not isinstance(v, dict)}
+        if "sidebar" in section:
+            yield f"theme.{mode}.sidebar", section["sidebar"]
+    if "sidebar" in theme:
+        yield "theme.sidebar", theme["sidebar"]
+
+
+def _luminance(hex_color):
+    channels = [int(hex_color[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+    linear = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def _contrast(a, b):
+    la, lb = _luminance(a), _luminance(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def _hue(hex_color):
+    r, g, b = (int(hex_color[i : i + 2], 16) / 255 for i in (1, 3, 5))
+    high, low = max(r, g, b), min(r, g, b)
+    if high == low:
+        return None
+    if high == r:
+        h = ((g - b) / (high - low)) % 6
+    elif high == g:
+        h = (b - r) / (high - low) + 2
+    else:
+        h = (r - g) / (high - low) + 4
+    return (h * 60) % 360
+
+
+def _hue_distance(a, b):
+    ha, hb = _hue(a), _hue(b)
+    assert ha is not None and hb is not None, "achromatic primary or red"
+    d = abs(ha - hb)
+    return min(d, 360 - d)
+
+
+def test_theme_defines_both_modes_and_colours_them_completely():
+    # A custom theme with only [theme] removes the System / Light / Dark switcher
+    # from Streamlit's menu and locks the app to one mode. Both subsections, each
+    # carrying the four base colours, is what keeps the switcher.
+    theme = _theme()
+    for mode in THEME_MODES:
+        assert mode in theme, f"[theme.{mode}] is missing; the theme switcher needs both modes"
+        assert {"primaryColor", "backgroundColor", "secondaryBackgroundColor", "textColor"} <= set(
+            theme[mode]
+        )
+
+
+def test_theme_uses_only_floor_keys_and_six_digit_hex():
+    # Streamlit logs an unknown key or an invalid colour as a warning and falls
+    # back to stock, so a typo here ships the stock red with a green gate. Every
+    # key must exist at the 1.59.0 floor, and every colour must be #rrggbb --
+    # names and rgba() would pass Streamlit but not the contrast arithmetic below.
+    for name, table in _theme_tables(_theme()):
+        for key, value in table.items():
+            if key.endswith("Color"):
+                assert key in THEME_COLOR_KEYS_AT_FLOOR, (
+                    f"[{name}] {key} is not a 1.59.0 colour key"
+                )
+                assert HEX_COLOR.match(value), f"[{name}] {key} = {value!r} is not #rrggbb"
+            else:
+                assert key in THEME_OTHER_KEYS_AT_FLOOR, f"[{name}] {key} is not a 1.59.0 theme key"
+
+
+def test_theme_sets_no_typography():
+    for name, table in _theme_tables(_theme()):
+        assert not (set(table) & THEME_TYPOGRAPHY_KEYS), f"[{name}] sets a font or size key"
+
+
+@pytest.mark.parametrize("mode", THEME_MODES)
+def test_theme_contrast(mode):
+    colours = {**_theme().get(mode, {})}
+    colours.pop("sidebar", None)
+    bg, secondary = colours["backgroundColor"], colours["secondaryBackgroundColor"]
+    text, primary = colours["textColor"], colours["primaryColor"]
+    red = colours.get("redColor", STOCK_PRIMARY)
+    # Body text sits on both backgrounds: the page, and the text area / dropzone /
+    # selectbox wells on the secondary.
+    assert _contrast(text, bg) >= 4.5
+    assert _contrast(text, secondary) >= 4.5
+    # primaryColor is also *text* -- the active tab label -- and st.error's red is.
+    assert _contrast(primary, bg) >= 4.5
+    assert _contrast(red, bg) >= 4.5
+    # The primary button always paints a white label. No blue can put that label
+    # at 4.5 while primary-as-text stays at 4.5 on a page brighter than #040507
+    # (the two bounds cross at luminance 0.183 vs 0.227); the theme takes the
+    # text side and holds the label at the 3:1 large-text/component floor, up
+    # from stock's 3.3, and hover darkens the fill, which lifts it past 6.
+    assert _contrast("#ffffff", primary) >= 3.0
+    # Hairline borders by design (Apple separators, not 3:1 boundaries), but a
+    # border that vanished into the page would drop every field edge at once.
+    assert _contrast(colours["borderColor"], bg) >= 1.5
+
+
+@pytest.mark.parametrize("mode", THEME_MODES)
+def test_theme_primary_is_not_the_error_hue(mode):
+    # The defect the theme fixes: stock's primary and its error red are the same
+    # hue (distance 0), so Transcribe, the active tab and the chosen format read
+    # as alerts. Reverting primaryColor to the stock red fails here and only here.
+    colours = _theme()[mode]
+    assert _hue_distance(colours["primaryColor"], colours.get("redColor", STOCK_PRIMARY)) >= 90
 
 
 # --- _transcribe ---

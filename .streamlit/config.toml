@@ -1,6 +1,48 @@
 [server]
 maxUploadSize = 500
 
-# No [theme] section: the app uses Streamlit's built-in light and dark themes.
-# Leaving theming unconfigured keeps the light/dark switcher in the app's
-# settings menu and lets the app track upstream restyles automatically.
+# macOS-native theme. The app only runs on a Mac (MLX/Metal), so it dresses as a
+# macOS window: Apple's dark-mode system greys for the surfaces, the system accent
+# blue where Streamlit paints its primary, systemRed for errors, capsule buttons.
+# Its functional job is to split "go" from "failed": stock Streamlit's primary is
+# the same red (#ff4b4b) as st.error, so Transcribe, the active tab and the chosen
+# format read as alerts. Blue sits 153 degrees from the error red.
+#
+# Both [theme.light] and [theme.dark] are defined so the System / Light / Dark
+# switcher in the app's menu survives; a [theme]-only custom theme locks one mode.
+# Colours only -- no font, size or heading keys: those are layout constants and
+# every pixel measurement in CLAUDE.md depends on the bundled Source Sans at 16px,
+# and a Google Fonts URL would call out from an app that promises to run locally.
+# Every key here exists at the streamlit>=1.59 floor; tests/test_app.py pins the
+# invariants (both modes, #rrggbb only, no typography keys, the contrast pairs).
+#
+# Shed order if an upstream restyle ever makes this fight the stock look: drop
+# borderColor and the two show*Border flags first, then buttonRadius, then the
+# backgrounds and text, and keep primaryColor + redColor -- they are the fix.
+#
+# Not set on purpose: greenColor (the st.status "complete" check renders muted,
+# not green), orange/yellow/violet/gray (no surface here), the sidebar sections
+# (Streamlit already swaps the two backgrounds there, which is the macOS source-list
+# look), and baseRadius (buttonRadius alone gives the capsules; widgets keep 8px).
+# Colour edits apply on rerun; only font changes would need a server restart.
+
+[theme]
+buttonRadius = "full"
+showWidgetBorder = true
+showSidebarBorder = true
+
+[theme.light]
+primaryColor = "#0061C2"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F2F2F7"
+textColor = "#141416"
+borderColor = "#AEAEB2"
+redColor = "#D70015"
+
+[theme.dark]
+primaryColor = "#0A84FF"
+backgroundColor = "#1C1C1E"
+secondaryBackgroundColor = "#2C2C2E"
+textColor = "#DDDDDD"
+borderColor = "#48484A"
+redColor = "#FF453A"

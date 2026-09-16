@@ -6,7 +6,7 @@
 
 Transcribe and translate audio and video **locally on your Mac** — no cloud, no uploads, no cost. This Streamlit application is powered by OpenAI's Whisper and accelerated on Apple Silicon with MLX (Apple's machine-learning framework). Bring your own files or record straight from the browser.
 
-![Whisper Transcribe — a Settings sidebar on the left holding the primary-language selector, a translate toggle, a Plain text / Subtitles transcript-format control, a no-verbatim toggle, and a collapsed Advanced options panel; the main area shows the two input tabs (Upload, Record) with the upload dropzone and a Transcribe button on the left, and an empty results panel reading "Transcripts appear here" on the right](docs/screenshot.png)
+![Whisper Transcribe in its dark macOS-style theme — a Settings sidebar on the left holding the primary-language selector, a translate toggle, a Plain text / Subtitles transcript-format control, a no-verbatim toggle, and a collapsed Advanced options panel; the main area shows the two input tabs (Upload, Record) with the upload dropzone and a Transcribe button on the left, and an empty results panel reading "Transcripts appear here" on the right](docs/screenshot.png)
 
 ## Features
 
@@ -21,13 +21,13 @@ Transcribe and translate audio and video **locally on your Mac** — no cloud, n
 - **Time-range clipping** — transcribe only selected portions (comma-separated `start,end` pairs in seconds)
 - **Keyterms** — bias decoding toward proper nouns and jargon (up to 50 terms)
 - **Instant repeat results** — identical file-and-settings combinations are served from cache
-- **Light and dark theme** with Material Symbol icons — pick System, Light or Dark from the ⋮ menu in the top-right corner (Streamlit's own menu, not the app's Settings sidebar)
+- **macOS-style light and dark themes** — Apple's system greys and accent blue, so the app looks like the Mac it runs on, with Material Symbol icons; pick System, Light or Dark from the ⋮ menu in the top-right corner (Streamlit's own menu, not the app's Settings sidebar)
 
 ## How it works
 
 You provide audio or video through one of two tabs (upload or record) and set any options in the sidebar. The app writes the audio to a temporary file and runs `mlx_whisper.transcribe()` with the Whisper large-v3-turbo model locally on Apple Silicon via MLX. The result is cached and rendered beside the input as editable plain text (or SRT when subtitles are enabled), and can be downloaded as `.txt` or `.srt`. See [CLAUDE.md](CLAUDE.md) for the full architecture.
 
-![A completed transcription in Whisper Transcribe — the Settings sidebar and, in the main area, an uploaded file's audio player with an enabled Transcribe button on the left; on the right, a "Transcribed 1/1 file" status above a bordered result section holding the filename, the editable transcript, and a Download button to save it as .txt or .srt](docs/screenshot-result.png)
+![A completed transcription in Whisper Transcribe's dark theme — the Settings sidebar and, in the main area, an uploaded file's audio player with an enabled blue Transcribe button on the left; on the right, a "Transcribed 1/1 file" status above a bordered result section holding the filename, the editable transcript, and a Download button to save it as .txt or .srt](docs/screenshot-result.png)
 
 ## Requirements
 
