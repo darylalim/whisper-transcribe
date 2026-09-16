@@ -4,24 +4,28 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 import streamlit as st
 from streamlit.elements.lib.file_uploader_utils import normalize_upload_file_type
+from streamlit.proto.Block_pb2 import Block as BlockProto
 from streamlit.proto.Common_pb2 import FileURLs
 from streamlit.runtime.memory_media_file_storage import get_extension_for_mimetype
 from streamlit.runtime.uploaded_file_manager import UploadedFile, UploadedFileRec
 from streamlit.testing.v1 import AppTest
+from streamlit.testing.v1.element_tree import Block, UnknownElement
 
 from streamlit_app import (
     ASR_MODEL_REPO,
     AUDIO_FORMATS,
+    BUTTON_WIDTH,
     DEFAULT_MEDIA_MIME,
+    EMPTY_RESULTS_HINT,
     ERROR_ICON,
     ERROR_MESSAGE_LIMIT,
     FORMAT_PLAIN_TEXT,
     FORMAT_SUBTITLES,
     MEDIA_MIME_TYPES,
     PAGE_CONFIG,
-    SELECT_WIDTH,
     SUBTITLE_LINE_WIDTH,
     TRANSCRIPT_FORMATS,
+    TRANSCRIPT_HEIGHT,
     VIDEO_FORMATS,
     _active_sources,
     _condense,
@@ -183,6 +187,18 @@ def test_asr_model_repo():
     assert ASR_MODEL_REPO == "mlx-community/whisper-large-v3-turbo"
 
 
+def test_transcript_height():
+    # Measured, not picked: keeps a one-file result (status, heading, text area,
+    # Download) inside a 1920x1080 display's 839px Chrome viewport with 66px to
+    # spare; 400 leaves 26px. Pinned literally because every other assertion on
+    # the height compares against the constant itself.
+    assert TRANSCRIPT_HEIGHT == 360
+
+
+def test_empty_results_hint():
+    assert EMPTY_RESULTS_HINT == ":material/subtitles: Transcripts appear here"
+
+
 def test_transcript_formats():
     # Order is display order in the segmented control, and index 0 is the default.
     assert TRANSCRIPT_FORMATS == (FORMAT_PLAIN_TEXT, FORMAT_SUBTITLES)
@@ -209,9 +225,15 @@ def test_video_formats():
 
 def test_format_list_fits_the_dropzone_hint():
     # The dropzone renders "<size> per file • MP3, M4A, ..." on a single
-    # `white-space: nowrap; text-overflow: ellipsis` line with ~479px for the
-    # format list at the centered layout's max width. Measured against Source
-    # Sans 14px, each entry costs ~31-40px, so the list has to stay short.
+    # `white-space: nowrap; text-overflow: ellipsis` line, and the whole hint
+    # measures 357px at Source Sans 14px (92px for the size prefix, ~265px for
+    # the list; each entry costs ~31-40px). Under the old `centered` layout the
+    # span had a fixed 571px at any desktop width. It is fluid now -- the input
+    # column is half the main area -- so this length proxy guards the list, not
+    # the viewport: with the sidebar open the slot the span fills is 581px at
+    # 1920 and 357px at 1472, and from 1470 down the list loses entries to an
+    # ellipsis (MKV at 1440; measured in Chrome). No test can see that half;
+    # CLAUDE.md "Accepted formats" carries the numbers.
     hint = ", ".join(f.upper() for f in AUDIO_FORMATS + VIDEO_FORMATS)
     assert len(hint) <= 60, f"{hint!r} will truncate in the uploader dropzone"
 
@@ -835,6 +857,40 @@ def test_transcription_kwargs_passes_through_unchanged_fields():
 def test_display_transcription_no_session_state(mock_st):
     _display_transcription()
     mock_st.text_area.assert_not_called()
+    # The empty state: one bordered box holding the centred hint, and nothing
+    # else. text_alignment on the caption rather than horizontal_alignment on
+    # the container, which centres a width="stretch" element to no effect.
+    mock_st.container.assert_called_once_with(border=True)
+    mock_st.caption.assert_called_once_with(EMPTY_RESULTS_HINT, text_alignment="center")
+
+
+def test_display_transcription_with_results_renders_no_hint(mock_st):
+    mock_st.session_state["transcription"] = [_make_transcription()]
+    _display_transcription()
+    mock_st.caption.assert_not_called()
+
+
+def test_display_transcription_all_failed_batch_renders_no_hint_on_its_own_run(mock_st):
+    # _handle_transcription publishes [] before its loop, so an all-failed batch
+    # leaves an empty list behind. On the run that rendered that batch's status
+    # and failure alerts, a hint saying nothing has happened would sit directly
+    # under them; the call site passes batch_just_ran=True and the column
+    # renders nothing more.
+    mock_st.session_state["transcription"] = []
+    _display_transcription(batch_just_ran=True)
+    mock_st.caption.assert_not_called()
+    mock_st.container.assert_not_called()
+
+
+def test_display_transcription_empty_list_renders_the_hint_on_later_runs(mock_st):
+    # The same [] on any later run -- the alerts are gone, the list is still
+    # empty -- gets the hint back. A first draft keyed the hint on the *key's*
+    # absence and left the column blank for the rest of the session after a
+    # failed batch.
+    mock_st.session_state["transcription"] = []
+    _display_transcription()
+    mock_st.container.assert_called_once_with(border=True)
+    mock_st.caption.assert_called_once_with(EMPTY_RESULTS_HINT, text_alignment="center")
 
 
 def test_display_transcription_shows_transcript(mock_st):
@@ -845,7 +901,7 @@ def test_display_transcription_shows_transcript(mock_st):
     mock_st.text_area.assert_called_once_with(
         "Transcript",
         "Hello world",
-        height=300,
+        height=TRANSCRIPT_HEIGHT,
         label_visibility="collapsed",
         key="transcript_b0_0",
     )
@@ -866,7 +922,7 @@ def test_display_transcription_txt_download(mock_st):
         key="download_txt_b0_0",
         help=DOWNLOAD_HELP,
         on_click="ignore",
-        width=SELECT_WIDTH,
+        width=BUTTON_WIDTH,
     )
 
 
@@ -884,7 +940,7 @@ def test_display_transcription_srt_download(mock_st):
         key="download_srt_b0_0",
         help=DOWNLOAD_HELP,
         on_click="ignore",
-        width=SELECT_WIDTH,
+        width=BUTTON_WIDTH,
     )
 
 
@@ -896,7 +952,7 @@ def test_display_transcription_subtitles_on(mock_st):
     mock_st.text_area.assert_called_once_with(
         "Transcript",
         SRT_HELLO,
-        height=300,
+        height=TRANSCRIPT_HEIGHT,
         label_visibility="collapsed",
         key="transcript_b0_0",
     )
@@ -918,7 +974,7 @@ def test_display_transcription_download_reflects_edits(mock_st):
         key="download_txt_b0_0",
         help=DOWNLOAD_HELP,
         on_click="ignore",
-        width=SELECT_WIDTH,
+        width=BUTTON_WIDTH,
     )
 
 
@@ -1314,7 +1370,7 @@ def test_page_config():
     assert PAGE_CONFIG == {
         "page_title": "Whisper Transcribe",
         "page_icon": ":material/graphic_eq:",
-        "layout": "centered",
+        "layout": "wide",
     }
 
 
@@ -1355,7 +1411,8 @@ def test_results_render_download_button_with_icon():
     # Seeded results render through the st.fragment(_display_transcription)() wrap.
     at = _run_app([_make_transcription()])
     assert not at.exception
-    assert [s.value for s in at.subheader] == ["interview.mp3"]
+    # at.main, not at: the sidebar's "Settings" heading is a subheader too.
+    assert [s.value for s in at.main.subheader] == ["interview.mp3"]
     assert at.text_area[0].value == "Hello world"
     download = at.get("download_button")[0]
     assert download.label == "Download"
@@ -1364,6 +1421,137 @@ def test_results_render_download_button_with_icon():
 
 def test_no_results_renders_no_download_button():
     assert _run_app().get("download_button") == []
+
+
+def test_settings_live_in_the_sidebar():
+    # Every setting is a sidebar widget and nothing that supplies or acts on
+    # audio is. at.sidebar / at.main are scoped views of the same tree, so a
+    # control drifting back into the main area fails here and nowhere else --
+    # the unscoped accessors the other cases use find a widget wherever it is.
+    at = _run_app()
+    sidebar, main = at.sidebar, at.main
+    assert [s.label for s in sidebar.selectbox] == ["Primary language"]
+    assert [t.label for t in sidebar.toggle] == [
+        "Translate to English",
+        "No verbatim",
+        "Decode independently",
+    ]
+    assert [s.label for s in sidebar.segmented_control] == ["Transcript format"]
+    # .status, not .expander: AppTest files every expandable block that carries
+    # an icon under Status (element_tree.py, `if block.expandable.icon`), and
+    # the Advanced options expander has one. at.expander is empty for this app.
+    assert [e.label for e in sidebar.status] == ["Advanced options"]
+    assert [t.label for t in sidebar.text_input] == ["Time range"]
+    assert [m.label for m in sidebar.multiselect] == ["Keyterms"]
+    assert [b.label for b in sidebar.button] == []
+    assert sidebar.tabs == []
+    assert [b.label for b in main.button] == ["Transcribe"]
+    assert len(main.tabs) == 2
+    for widgets in (main.selectbox, main.toggle, main.segmented_control, main.text_input):
+        assert widgets == []
+
+
+def test_main_area_splits_input_and_results_into_two_columns():
+    at = _run_app([_make_transcription()])
+    input_col, results_col = at.main.columns
+    # Equal halves: the input column is what carries the dropzone hint's width
+    # and the results column the transcript's measure (see the source comment).
+    assert [c.weight for c in at.main.columns] == [0.5, 0.5]
+    assert len(input_col.tabs) == 2
+    assert [b.label for b in input_col.button] == ["Transcribe"]
+    # .get(), not .download_button: the accessor is newer than 1.58.0, and the
+    # suite's passing there is a recorded property (CLAUDE.md, Dependencies).
+    assert [d.label for d in results_col.get("download_button")] == ["Download"]
+    assert input_col.get("download_button") == []
+    assert results_col.button == []
+
+
+def _holder_of(block, label):
+    # The first Block, in document order, whose direct children include the
+    # element labelled `label` -- i.e. the container a widget was declared in.
+    # `block` itself is never a candidate, so a widget declared bare in the
+    # column resolves to None (and fails the caller's `is not None`).
+    for child in block.children.values():
+        if isinstance(child, Block):
+            if any(
+                not isinstance(g, Block) and getattr(g, "label", None) == label
+                for g in child.children.values()
+            ):
+                return child
+            if (found := _holder_of(child, label)) is not None:
+                return found
+    return None
+
+
+def test_transcribe_button_is_right_aligned():
+    # The Download container's alignment is pinned under mock_st; the Transcribe
+    # one is module-level, so only the block proto can pin it. "right" is
+    # JUSTIFY_END; "distribute" would be SPACE_BETWEEN, which left-aligns a
+    # standalone child and silently unsticks the edge.
+    input_col, _ = _run_app().main.columns
+    holder = _holder_of(input_col, "Transcribe")
+    assert holder is not None and holder.proto.HasField("flex_container")
+    flex = holder.proto.flex_container
+    assert flex.direction == BlockProto.FlexContainer.Direction.HORIZONTAL
+    assert flex.justify == BlockProto.FlexContainer.Justify.JUSTIFY_END
+
+
+def test_sidebar_is_three_tiers_separated_by_two_seams():
+    # The two st.space("small") calls *are* the grouping (input | output |
+    # advanced); as source order alone the tiers are invisible. AppTest keeps
+    # st.space as an UnknownElement whose .type is "space", so the seams and the
+    # heading are readable in order, if not their size.
+    sidebar = _run_app().sidebar
+    rows = [sidebar.children[i] for i in sorted(sidebar.children)]
+
+    def _name(row):
+        if isinstance(row, UnknownElement):
+            return row.type
+        return getattr(row, "label", None) or getattr(row, "value", None)
+
+    assert [(type(r).__name__, _name(r)) for r in rows] == [
+        ("Subheader", "Settings"),
+        ("Selectbox", "Primary language"),
+        ("UnknownElement", "space"),
+        ("Toggle", "Translate to English"),
+        ("ButtonGroup", "Transcript format"),
+        ("Toggle", "No verbatim"),
+        ("UnknownElement", "space"),
+        ("Status", "Advanced options"),
+    ]
+
+
+def test_every_setting_carries_help():
+    # The README restates every tooltip by hand; a widget that loses its help=
+    # would otherwise ship silently. The label is the widget's own again, so the
+    # tooltip hangs off the widget, not a markdown label beside it.
+    sidebar = _run_app().sidebar
+    widgets = [
+        *sidebar.selectbox,
+        *sidebar.toggle,
+        *sidebar.segmented_control,
+        *sidebar.text_input,
+        *sidebar.multiselect,
+    ]
+    assert len(widgets) == 7
+    assert all(w.help for w in widgets), [w.label for w in widgets if not w.help]
+
+
+def test_time_range_error_renders_beside_the_transcribe_button():
+    # The input is in the sidebar's collapsed expander; the alert it produces
+    # belongs next to the button it disables, not next to the input.
+    at = _run_app()
+    next(t for t in at.text_input if t.label == "Time range").set_value("90,30").run()
+    input_col, results_col = at.main.columns
+    assert [e.value for e in input_col.error] == [_validate_time_range("90,30")]
+    assert at.sidebar.error == [] and results_col.error == []
+
+
+def test_empty_results_column_shows_the_hint_until_a_result_exists():
+    _, empty = _run_app().main.columns
+    assert [c.value for c in empty.caption] == [EMPTY_RESULTS_HINT]
+    _, filled = _run_app([_make_transcription()]).main.columns
+    assert filled.caption == []
 
 
 def _publish(at, transcription, batch):
@@ -1390,7 +1578,7 @@ def test_new_batch_replaces_previous_transcript_text():
 
     _publish(at, [_make_transcription(filename="second.mp3", text="Second file text")], batch=2)
     assert not at.exception
-    assert [s.value for s in at.subheader] == ["second.mp3"]
+    assert [s.value for s in at.main.subheader] == ["second.mp3"]
     assert at.text_area[0].value == "Second file text"
 
 
@@ -1493,10 +1681,32 @@ def test_transcription_failure_renders_an_escaped_alert():
         at.button[0].click().run()
 
     assert not at.exception
-    assert [e.value for e in at.error] == [
+    input_col, results_col = at.main.columns
+    # Scoped to the results column: the replay renders where the status does.
+    assert [e.value for e in results_col.error] == [
         r"Transcription failed for my\_clip.mp3\: Failed to load audio"
     ]
+    assert input_col.error == [] and at.sidebar.error == []
     assert at.session_state["transcription"] == []
+    # No "Transcripts appear here" under the failure on the click run...
+    assert results_col.caption == []
+    # ...and the hint is back on the next run, when the alerts are gone; the
+    # button's click does not survive a rerun, so batch_just_ran is False.
+    at.run()
+    _, results_col = at.main.columns
+    assert results_col.error == [] and results_col.status == []
+    assert [c.value for c in results_col.caption] == [EMPTY_RESULTS_HINT]
+
+
+def test_transcription_status_renders_in_the_results_column():
+    with patch("mlx_whisper.transcribe", return_value=MOCK_WHISPER_RESULT):
+        at = _upload(_run_app())
+        at.button[0].click().run()
+    input_col, results_col = at.main.columns
+    assert [(s.label, s.state) for s in results_col.status] == [
+        ("Transcribed 1/1 file", "complete")
+    ]
+    assert input_col.status == []
 
 
 @pytest.mark.parametrize(
@@ -1559,17 +1769,22 @@ def test_transcribe_falls_back_to_a_loaded_upload_from_an_empty_tab():
 
 
 def test_transcript_format_defaults_to_plain_text():
-    # This pins `default=` only. The companion `required=True` is deliberately NOT
-    # asserted here because AppTest cannot see it: per the docstring it stops a user
-    # from deselecting the chosen option in the browser ("clicking an already-selected
-    # option does nothing"), and AppTest's ButtonGroup.unselect() is a no-op for a
-    # single-select group whether or not required is set -- verified by deleting
-    # required=True and re-running, which changes nothing observable. So dropping
-    # required=True is a silent regression as far as this suite is concerned: it would
-    # let the widget return None, which reads as plain text through the
-    # `== FORMAT_SUBTITLES` comparison while looking like nothing is selected.
     at = _run_app()
     assert at.segmented_control[0].value == FORMAT_PLAIN_TEXT
+
+
+def test_transcript_format_is_required():
+    # `required=True` stops a user deselecting the chosen option in the browser
+    # ("clicking an already-selected option does nothing"); without it a
+    # single-select group returns None, which reads as plain text through the
+    # `== FORMAT_SUBTITLES` comparison while looking like nothing is selected.
+    # That *behaviour* is invisible to AppTest -- ButtonGroup.unselect() is a
+    # no-op for a single-select group either way, verified by deleting the kwarg
+    # and re-running -- but the *flag* is not: Element.__getattr__ falls through
+    # to the proto, and st.segmented_control(required=True) sets
+    # ButtonGroup.required. An earlier version of this file called the kwarg
+    # untestable on the strength of the first half alone.
+    assert _run_app().sidebar.segmented_control[0].required is True
 
 
 @pytest.mark.parametrize(
