@@ -120,7 +120,7 @@ LANGUAGE_CODES: list[str | None] = [None] + sorted(LANGUAGES, key=lambda c: LANG
 # same button in the same amount of room. The two do not share a right edge --
 # Download sits inside the results card, whose 15px padding plus 1px border
 # insets it by 16px, and Transcribe sits in the bare input column -- as they
-# have not since aae209d put Download inside that card; see CLAUDE.md.
+# have not since aae209d put Download inside that card; see docs/layout-history.md.
 BUTTON_WIDTH = 168
 # Height of each transcript text area. 300 dates from 7b055f1, when the app was
 # one default-layout column with the results below the controls, and carried no
