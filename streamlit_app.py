@@ -816,8 +816,8 @@ with input_col:
         # No st.audio preview here, unlike the Upload tab. st.audio_input is not
         # a bare capture control — it renders its own WaveSurfer player
         # (interactive waveform, timecode, Play/Pause as soon as a recording
-        # exists, and a "Clear recording" action), so an st.audio call would
-        # stack a second, visually different player on the same bytes.
+        # exists, plus "Download as WAV" and "Clear recording"), so an st.audio
+        # call would stack a second, visually different player on the same bytes.
         recorded_audio = st.audio_input("Record audio", label_visibility="collapsed")
 
     # The tab the user is looking at wins, and that is not what a flat priority
