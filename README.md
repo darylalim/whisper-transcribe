@@ -6,12 +6,12 @@
 
 Transcribe and translate audio and video **locally on your Mac** — no cloud, no uploads, no cost. This Streamlit application is powered by OpenAI's Whisper and accelerated on Apple Silicon with MLX (Apple's machine-learning framework). Bring your own files or record straight from the browser.
 
-![Whisper Transcribe in its dark macOS-style theme — a Settings sidebar on the left holding the primary-language selector, a translate toggle, a Plain text / Subtitles transcript-format control, a no-verbatim toggle, and a collapsed Advanced options panel; the main area shows the two input tabs (Upload, Record) with the upload dropzone and a Transcribe button on the left, and an empty results panel reading "Transcripts appear here" on the right](docs/screenshot.png)
+![Whisper Transcribe in its dark macOS-style theme — a Settings sidebar on the left, headed by a small waveform mark, holding the primary-language selector, a translate toggle, a Plain text / Subtitles transcript-format control, a no-verbatim toggle, and a collapsed Advanced options panel; the main area shows the two input tabs (Upload, Record) with the upload dropzone and a Transcribe button on the left, and an empty results panel reading "Transcripts appear here" on the right](docs/screenshot.png)
 
 ## Features
 
 - **[OpenAI Whisper large-v3-turbo](https://huggingface.co/mlx-community/whisper-large-v3-turbo)** via [mlx-whisper](https://pypi.org/project/mlx-whisper/), accelerated on Apple Silicon
-- **On-device processing** — audio is transcribed entirely on your machine; nothing is uploaded (only the one-time model-weights download on first run uses the network)
+- **On-device processing** — audio is transcribed entirely on your machine; nothing is uploaded (only the one-time model-weights download on first run uses the network, and Streamlit's own usage-statistics reporting is switched off in `.streamlit/config.toml`)
 - **100-language transcription** with auto-detect or manual selection
 - **Translate non-English audio to English**
 - **Two input modes** — multi-file upload (up to 500 MB per file) and in-browser recording
@@ -27,7 +27,7 @@ Transcribe and translate audio and video **locally on your Mac** — no cloud, n
 
 You provide audio or video through one of two tabs (upload or record) and set any options in the sidebar. The app writes the audio to a temporary file and runs `mlx_whisper.transcribe()` with the Whisper large-v3-turbo model locally on Apple Silicon via MLX. The result is cached and rendered beside the input as editable plain text (or SRT when subtitles are enabled), and can be downloaded as `.txt` or `.srt`. See [CLAUDE.md](CLAUDE.md) for the full architecture.
 
-![A completed transcription in Whisper Transcribe's dark theme — the Settings sidebar and, in the main area, an uploaded file's audio player with an enabled blue Transcribe button on the left; on the right, a "Transcribed 1/1 file" status above a bordered result section holding the filename, the editable transcript, and a Download button to save it as .txt or .srt](docs/screenshot-result.png)
+![A completed transcription in Whisper Transcribe's dark theme — the Settings sidebar and, in the main area, an uploaded file's audio player with an enabled blue Transcribe button on the left; on the right, a "Transcribed 1/1 file" status above a bordered result section holding the filename with a document icon, the editable transcript, and a Download button to save it as .txt or .srt](docs/screenshot-result.png)
 
 ## Requirements
 
@@ -53,7 +53,7 @@ uv run streamlit run streamlit_app.py
 
 Upload one or more files (audio: `mp3, m4a, wav, opus`; video: `mp4, mov, webm, mkv`) or record audio in-browser, then click **Transcribe**. Transcripts appear beside the input, one editable section per file. The app opens in Streamlit's wide layout with the settings in a sidebar and is laid out for a desktop window: the dropzone's format list is shown in full when the window is at least about 1460 px wide with the sidebar open (in a narrower window it is abbreviated with an ellipsis — every format is still accepted — and collapsing the sidebar restores it down to about 1160 px); below ~770 px the sidebar collapses on its own, and at 640 px or narrower the two panels stack.
 
-> **First run:** the first time you transcribe, the Whisper large-v3-turbo weights (~1.5 GB) are downloaded from Hugging Face and cached locally, so the first transcription takes longer and needs an internet connection. Subsequent transcriptions run offline.
+> **First run:** the first time you transcribe, the Whisper large-v3-turbo weights (~1.5 GB) are downloaded from Hugging Face and cached locally — the status box reads **Downloading model weights (first run only)...** while that happens — so the first transcription takes longer and needs an internet connection. Subsequent transcriptions run offline.
 
 Optional controls, in the **Settings** sidebar:
 
@@ -84,7 +84,7 @@ CI runs the same tools on every push to `main` and on pull requests — it uses 
 
 - **`ffmpeg` not found** — install it with `brew install ffmpeg` and verify with `ffmpeg -version`. FFmpeg is required for decoding audio and video.
 - **Intel Mac / non–Apple Silicon** — `mlx-whisper` requires Apple Silicon and will not run on Intel Macs.
-- **Long pause on the first transcription** — the model weights (~1.5 GB) are downloading from Hugging Face (see the *First run* note above); this needs a network connection and only happens once.
+- **Long pause on the first transcription** — the model weights (~1.5 GB) are downloading from Hugging Face; the status box says so (see the *First run* note above). This needs a network connection and only happens once.
 - **Download is missing your last edit** — the transcript box commits when it loses focus, so click outside it (or press Ctrl/Cmd+Enter) before pressing **Download**.
 
 ## License

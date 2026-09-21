@@ -1,3 +1,4 @@
+import contextlib
 import math
 import re
 import tempfile
@@ -15,9 +16,11 @@ from typing import Any
 # directive tracks the lock in both directions. That token is spelled without
 # its leading `#` on purpose -- a `#`-prefixed copy anywhere in a comment is a
 # live directive to ty. History and measurements: CLAUDE.md, "Model".
+import huggingface_hub
 import mlx.core as mx
 import mlx_whisper
 import streamlit as st
+from huggingface_hub.errors import LocalEntryNotFoundError
 from mlx_whisper.tokenizer import LANGUAGES
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
@@ -72,6 +75,9 @@ MEDIA_MIME_TYPES = {
 # audio as text.
 DEFAULT_MEDIA_MIME = "audio/wav"
 ERROR_ICON = ":material/error:"
+# Leads each result card's filename heading. A body prefix, not
+# st.subheader(icon=), which is 1.63.0-only and above the >=1.59 floor.
+RESULT_ICON = ":material/description:"
 # Cap on an error alert's length, applied head-and-tail rather than as a plain
 # truncation. The exception text reaching _error was not written for a UI: a
 # corrupt file makes mlx_whisper raise RuntimeError("Failed to load audio: " +
@@ -268,13 +274,26 @@ def _escape_markdown(text: str) -> str:
     Two mechanisms, because Markdown has two layers:
 
     *Inline* constructs are backslash-escaped. A filename containing *, _,
-    backticks, brackets, or : (emoji/Material-icon directives) — underscored
-    names are the everyday case — would otherwise mis-render. `&` is in the class
-    because micromark's characterReference is a parse-time construct: without it
-    `clip&#58;streamlit&#58;.mp3` decodes to a live `:streamlit:` that the
-    frontend's post-parse pass swaps for the logo image, and `Rock &amp; Roll.mp3`
-    displays as `Rock & Roll.mp3`. `&` is ASCII punctuation, so `\\&` is a valid
-    CommonMark characterEscape.
+    backticks, brackets, or : (the `:red[…]` / `:badge[…]` text directives) —
+    underscored names are the everyday case — would otherwise mis-render. `&` is
+    in the class because micromark's characterReference is a parse-time
+    construct: without it `clip&#58;streamlit&#58;.mp3` decodes to a live
+    `:streamlit:` that the frontend's post-parse pass swaps for the logo image,
+    and `Rock &amp; Roll.mp3` displays as `Rock & Roll.mp3`. `&` is ASCII
+    punctuation, so `\\&` is a valid CommonMark characterEscape.
+
+    What the backslash does *not* reach is anything the frontend applies after
+    the parse, over text nodes, where the escape has already been consumed:
+    `:material/…:` and `:streamlit:` (a raw-string replaceAll, then a
+    find-and-replace), the typographic substitutions (`--` to an em dash), and
+    GFM autolink literals — `https://…`, `www.…` and `user@host.…` render as
+    live links at every sink. Emoji shortcodes come out literal, but only
+    because the emoji plugin is lazy-loaded on a regex over the *raw* source
+    that the escaped `\\:tada\\:` fails to match; it too is a post-parse pass.
+    All of it is accepted rather than fixed, and the mechanisms, the
+    measurements and the declined zero-width-space guard are recorded under
+    `_escape_markdown` in CLAUDE.md — check that boundary, not this list,
+    before adding a character to the class.
 
     *Block* constructs are defused by collapsing whitespace, not by escaping:
     headings, blockquotes, lists, thematic breaks and GFM tables all need a line
@@ -510,7 +529,44 @@ def _handle_transcription(
     st.session_state["batch_id"] = st.session_state.get("batch_id", 0) + 1
     total = len(uploaded_files)
     try:
-        with st.status(f"Transcribing {_plural(total, 'file')}...", expanded=True) as status:
+        # No expanded=True: nothing renders inside the block, and the first
+        # update(label=...) below collapses it regardless (see `failures` above),
+        # so the flag bought an empty open box for _create's 50 ms and no more.
+        with st.status(f"Transcribing {_plural(total, 'file')}...") as status:
+            # The first mlx_whisper.transcribe() of the process downloads the
+            # weights (~1.5 GB) inside load_model, with tqdm on the server's
+            # stderr and nothing on the page but the per-file label below --
+            # the README's "first run" note exists because the UI said nothing.
+            # Probe the cache offline first: local_files_only makes no network
+            # call and returns in ~0 s when the snapshot is present, and only
+            # on a miss does the label switch and the fetch run here, so the
+            # model's own snapshot_download then finds it cached. Not a bare
+            # snapshot_download every time: even cached, that resolves `main`
+            # against the Hub on every call (two GETs, ~0.3 s, 30 s on a cold
+            # connection) and would flash a false "first run" label per click.
+            # Called through the module attribute so one patch target covers
+            # both the imported module and the AppTest re-execution. Two
+            # residues: the probe consults the disk only, so a cache deleted
+            # mid-session re-downloads under this label although the model is
+            # already resident (ModelHolder holds it for the process); and a
+            # rerun request that lands during the prefetch is raised at the
+            # loop's first per-file label, before _transcribe runs, so that
+            # batch aborts with [] published -- before the probe the download
+            # ran inside _transcribe and the first file's in-place append had
+            # landed before the next yield point (CLAUDE.md, "Model").
+            try:
+                huggingface_hub.snapshot_download(repo_id=ASR_MODEL_REPO, local_files_only=True)
+            except LocalEntryNotFoundError:
+                status.update(label="Downloading model weights (first run only)...")
+                # Best-effort prefetch, for the label only. A failure (no
+                # network, a dropped connection) is deliberately swallowed: the
+                # loop below is the source of truth -- mlx_whisper retries the
+                # download inside its own call, and that failure is caught per
+                # file and replayed as an alert, exactly as before this probe
+                # existed. Letting it escape here instead would skip the replay
+                # and leave the status stuck on this label under a traceback.
+                with contextlib.suppress(Exception):
+                    huggingface_hub.snapshot_download(repo_id=ASR_MODEL_REPO)
             for i, uploaded_file in enumerate(uploaded_files, start=1):
                 # Escape before interpolating anywhere Markdown renders. An st.status
                 # label takes the Markdown label subset — which includes images, so a
@@ -545,7 +601,18 @@ def _handle_transcription(
                     )
                     transcriptions.append(
                         {
-                            "result": result,
+                            # The rendered text, once, here -- not the raw mlx
+                            # result, which nothing downstream reads, and not
+                            # per rerun in _display_transcription: a keyed
+                            # st.text_area restores its session-state value and
+                            # ignores `value` after the first render, so
+                            # re-wrapping every cue on every rerun (~44 us a
+                            # segment) was work for a value nothing read.
+                            # Inside the try, so a formatting failure replays
+                            # as a per-file alert.
+                            "transcript": (
+                                _format_srt(result) if include_subtitles else result["text"].strip()
+                            ),
                             "file_stem": f"{name.stem}_{name.suffix.lstrip('.')}_transcript",
                             "filename": uploaded_file.name,
                             "include_subtitles": include_subtitles,
@@ -623,18 +690,18 @@ def _display_transcription() -> None:
     batch = st.session_state.get("batch_id", 0)
     for i, data in enumerate(transcriptions):
         include_subtitles = data["include_subtitles"]
-        if include_subtitles:
-            initial = _format_srt(data["result"])
-        else:
-            initial = data["result"]["text"].strip()
         # One bordered box per result. Sections stack flat otherwise, so in a
         # multi-file batch one file's Download button abuts the next file's
         # heading with nothing marking the seam. No-op visually for a single file.
         with st.container(border=True):
-            st.subheader(_escape_markdown(data["filename"]))
+            # The icon sits outside the escape for clarity, not necessity: the
+            # frontend swaps `:material/` on the raw string before parsing, so
+            # a backslash would not have printed it either way (see CLAUDE.md,
+            # _escape_markdown). The filename itself is untrusted and escaped.
+            st.subheader(f"{RESULT_ICON} {_escape_markdown(data['filename'])}")
             transcript = st.text_area(
                 "Transcript",
-                initial,
+                data["transcript"],
                 height=TRANSCRIPT_HEIGHT,
                 label_visibility="collapsed",
                 key=f"transcript_b{batch}_{i}",
@@ -673,6 +740,14 @@ def _display_transcription() -> None:
 
 # UI
 st.set_page_config(**PAGE_CONFIG)
+# The app's mark in the sidebar header: the same glyph as the page icon and the
+# Transcribe button, as a Material icon rather than an asset -- no file to
+# resolve (st.logo raises on a missing path, and the screenshot harness execs
+# this file from a scratch directory) and no outbound request. Not in AppTest's
+# element tree (the logo ForwardMsg carries no delta and is dropped), so the
+# suite pins it by patching streamlit.logo around a run, as _recording does for
+# st.audio_input; the screenshots show it.
+st.logo(":material/graphic_eq:", size="small")
 st.title("Whisper Transcribe")
 # Orientation for a first-time visitor, who otherwise meets a bare title and a
 # dropzone. st.caption rather than st.info: design.md scopes the callout styles to
@@ -809,8 +884,22 @@ with input_col:
             label_visibility="collapsed",
             accept_multiple_files=True,
         )
-        for uploaded_file in uploaded_files:
-            st.audio(uploaded_file, format=_media_mime(uploaded_file.name))
+        # The previews are gated on the tab being open; the uploader above is
+        # not, and must not be (a widget absent from a run loses its state --
+        # see "Lazy Container Execution" in CLAUDE.md). st.audio is a side
+        # effect with a cost: _marshall_av_media copies the file's bytes into
+        # the MediaFileManager, and because the widget hands the script a
+        # deepcopy of the upload on every run, that copy is a genuine second
+        # buffer -- up to the 500 MB cap per file -- held for as long as some run
+        # re-registers the element. Ungated, that was every run for the rest of
+        # the session, the Record tab included; gated, a Record-open run emits
+        # no preview and the orphan sweep after the run releases it. The switch
+        # back is already a rerun (on_change="rerun"), so the preview returns
+        # with the tab. Residue: the hidden panel is force-mounted, so the
+        # player unmounts while Record is open and its playback position resets.
+        if upload_tab.open:
+            for uploaded_file in uploaded_files:
+                st.audio(uploaded_file, format=_media_mime(uploaded_file.name))
 
     with record_tab:
         # No st.audio preview here, unlike the Upload tab. st.audio_input is not
@@ -854,22 +943,33 @@ with input_col:
         )
 
 with results_col:
-    # The st.status that _handle_transcription opens renders here, above the
-    # results it is reporting on, rather than under the Transcribe button.
+    # A reserved slot for whatever sits above the result cards: the st.status
+    # that _handle_transcription opens on the click run (with the failure alerts
+    # it replays after the block), or the empty-state hint on a run with no
+    # results. Reserved up front so the cards are always the column's *second*
+    # child: without it they were index 1 on the click run (status first) and
+    # index 0 on every other run, and the frontend, which matches blocks by
+    # position, remounted every card on the first rerun after a batch -- a keyed
+    # text area keeps its committed value through that, but an uncommitted edit
+    # on a full rerun that did not blur it does not. An empty container renders
+    # no DOM node (measured: the hint's box sits at the same y with or without
+    # it), so the slot costs nothing on the runs that leave it empty.
+    status_slot = st.container()
     batch_just_ran = bool(transcribe_clicked and audio_sources and not time_range_error)
     if batch_just_ran:
-        _handle_transcription(
-            audio_sources,
-            **_transcription_kwargs(
-                language=language,
-                translate=translate,
-                include_subtitles=include_subtitles,
-                initial_prompt=initial_prompt,
-                no_verbatim=no_verbatim,
-                decode_independently=decode_independently,
-                clip_timestamps=clip_timestamps,
-            ),
-        )
+        with status_slot:
+            _handle_transcription(
+                audio_sources,
+                **_transcription_kwargs(
+                    language=language,
+                    translate=translate,
+                    include_subtitles=include_subtitles,
+                    initial_prompt=initial_prompt,
+                    no_verbatim=no_verbatim,
+                    decode_independently=decode_independently,
+                    clip_timestamps=clip_timestamps,
+                ),
+            )
 
     if st.session_state.get("transcription"):
         # Wrapped in a fragment so transcript edits/downloads rerun only this
@@ -892,6 +992,7 @@ with results_col:
         # it that way -- so the hint returns rather than leaving the column blank
         # for the rest of the session. text_alignment on the caption, not
         # horizontal_alignment on the box: the caption is a width="stretch"
-        # element, so centring *it* changes nothing.
-        with st.container(border=True):
+        # element, so centring *it* changes nothing. Inside the slot, so the
+        # rule stays "the slot holds whatever sits above the cards".
+        with status_slot, st.container(border=True):
             st.caption(EMPTY_RESULTS_HINT, text_alignment="center")

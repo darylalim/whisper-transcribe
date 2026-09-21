@@ -26,6 +26,10 @@ From the **Input Modes** bullet **There is no labelled-control grid any more, an
 
 From the **Input Modes** bullet **`BUTTON_WIDTH = 168` is the width of the Transcribe and Download buttons, and of nothing else**. **It was `SELECT_WIDTH`**, and existed because `st.selectbox` has no `width="content"` — its default is `"stretch"`, which fills the whole horizontal container — with the **Time range** input and the two buttons taking the same constant so all four matched; the selectbox and the input no longer take a width at all, so the constant is named for what still does. The where-the-168-comes-from mechanism (`st.columns([3, 1])` in the `centered` layout, a 16 px gap and `calc(share − 16px)` flex bases, not "704 less a 32 px gap, over four") stays in that `CLAUDE.md` bullet, since it is what the constant still means.
 
+## Input Modes: the wrong `BUTTON_WIDTH` mechanism
+
+From the **`BUTTON_WIDTH = 168`** bullet under **Input Modes**. 168 is what `st.columns([3, 1])` yielded in the `centered` layout, measured, and **the mechanism is not "704 less a 32 px gap, over four"**, which an earlier version of that line and the source comment above `BUTTON_WIDTH` both said — `st.columns`' gap is 16 px; each column's flex basis is `calc(share − 16px)`, so the narrow column is 176 − 16 = 160, and the 16 px of leftover splits 8/8, giving 168. `(704 − 2×16) / 4` lands on the same number, which is how the wrong mechanism survived. The source comment now carries the right one beside the coincident arithmetic.
+
 ## Input Modes: the controls card and the edge the buttons used to share
 
 From the standalone **Input Modes** paragraph **The split is exactly "inside a bordered card" versus "not", and that is the whole rule** — the selectbox and the controls card each button used to pair with. The selectbox that used to share Download's inset from inside the controls card is in the sidebar now, and the controls card whose right border Transcribe used to line up with is gone — the two buttons are in different columns and have no edge to share. For the record, the pre-split statement of the same rule, as the `CLAUDE.md` of `e0df0a8` (the last commit before the sidebar landed in `ee40f33`) put it: "The selectbox sits in the controls card and Download sits in `_display_transcription`'s results card, so both inset by 16 px. Transcribe sits outside both and stays flush with the 704 px content edge — which is also where the controls card's own right border falls, so the button lines up with the **card** above it rather than with the selectbox inside it."
@@ -43,6 +47,10 @@ From the same standalone **Input Modes** paragraph as the pairing above — the 
 ## Input Modes: the earlier claim for `st.columns([3, 1])` on the button rows
 
 From the **Input Modes** bullet **The only `st.columns` in `streamlit_app.py` is the module-level `input_col, results_col = st.columns(2, gap="small")` that splits the main area**, whose pointer says this file has the earlier claim. "This file", in the sentence as it was written, is `CLAUDE.md`. An earlier version of this file justified keeping `st.columns([3, 1])` on the two button rows with "(a button *does* need a width ratio)". That was false when written: `st.button` and `st.download_button` both accept `width` as an int pixel value, in the locked 1.63.0 *and* well below the declared `>=1.59` floor.
+
+## Accepted formats: the `centered`-era dropzone budget
+
+From the second paragraph of **Accepted formats**, which now states only the hint's 357px natural width and the old 571px slot. Measured in a running app while it was a single `centered` column: the slot the span fills got **571px**, the size prefix ate **92px**, leaving **~479px** for the format list at Source Sans 14px (~31–40px per entry). That budget did not move with the window, because `centered` caps the main block at 736px (a 704px content box) and the slot is the content width less a fixed 133px — 12px of dropzone padding each side, the 93px **Upload** button and the 16px gap between them; 704 − 133 = 571 reproduces the figure. `test_format_list_fits_the_dropzone_hint`'s 60-character ceiling is a proxy for that ~479px, kept after the move to the fluid `wide` column because the 1920px figure has no floor under it.
 
 ## Accepted formats: the pre-theme stock dropzone thresholds
 

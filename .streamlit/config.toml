@@ -1,6 +1,14 @@
 [server]
 maxUploadSize = 500
 
+# Streamlit's usage statistics default to on: the frontend fetches
+# data.streamlit.io/metrics.json and posts command-usage events on every load.
+# Off for the same reason the theme below carries no Google Fonts URL -- the
+# README promises that only the first-run weight download touches the network.
+# tests/test_app.py pins this; nothing else in the gate reads the config.
+[browser]
+gatherUsageStats = false
+
 # macOS-native theme. The app only runs on a Mac (MLX/Metal), so it dresses as a
 # macOS window: Apple's dark-mode system greys for the surfaces, the system accent
 # blue where Streamlit paints its primary, systemRed for errors, capsule buttons.

@@ -28,6 +28,7 @@ The same figures in sequence, so the next re-measure can append a line rather th
 - `84e7b40` (2026-09-14) — the ~4.3 s gate / `pytest` ~4.0 s figure the paragraph still quotes entered `CLAUDE.md`, at what that commit's own text called 100 test functions (180 cases); the suite then reached 101 functions (181 cases)
 - `9f2e57d` (2026-09-15, `refactor: remove the YouTube and URL input tabs`) — 89 functions (163 cases) after the removal
 - the sidebar + two-column layout — 100 functions (174 cases); the gate re-measured at 4.4 s, `pytest` ~3.9 s of it
-- the theme cases — 105 functions (181 cases), `pytest` ~3.8 s; the count `CLAUDE.md` carries now
+- the theme cases — 105 functions (181 cases), `pytest` ~3.8 s
+- the best-practices fixes (usage stats off, the HF cache probe, the reserved status slot, the gated preview, `_run`, the logo pin) — 112 functions (188 cases), `pytest` ~3.9 s on an idle machine (the re-measure ran beside a game at 228 % CPU and read 12 s, which is the machine, not the suite); the count `CLAUDE.md` carries now
 
 The growth is test count throughout — no dependency change moved the gate — and `pytest` is the whole of it: `ty` is ~0.2 s and the three `uv`/`ruff` steps under 0.1 s combined, which is why the hooks bullet under **Automation** records that adding the two `ruff` steps to the gate cost ~50 ms, indistinguishable within run-to-run noise.

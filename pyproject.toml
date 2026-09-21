@@ -18,6 +18,17 @@ dependencies = [
     # locked version, not this one -- see the comment above that import.
     "mlx>=0.24.2",
     "mlx-whisper",
+    # Direct for the same reason as mlx: streamlit_app calls
+    # huggingface_hub.snapshot_download itself, to probe the weight cache offline
+    # before the first model pass and label the first-run download. mlx-whisper
+    # depends on it unpinned. snapshot_download(local_files_only=) and
+    # huggingface_hub.errors.LocalEntryNotFoundError exist well below this floor
+    # (checked at 0.30.0 and 1.0.0); 1.22 is where the offline probe starts to
+    # see a *partial* snapshot -- an interrupted first run -- as a miss
+    # (_raise_if_incomplete_snapshot, IncompleteSnapshotError, absent at 1.21.0),
+    # so below it a resumed download runs unlabelled, the exact gap the label
+    # closes. The lock is 1.31.0, and py.typed ships at every version checked.
+    "huggingface-hub>=1.22",
     "streamlit>=1.59",
 ]
 

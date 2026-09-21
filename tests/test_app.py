@@ -1,10 +1,12 @@
 import re
 import tomllib
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, call, patch
 
 import pytest
 import streamlit as st
+from huggingface_hub.errors import IncompleteSnapshotError, LocalEntryNotFoundError
 from streamlit.elements.lib.file_uploader_utils import normalize_upload_file_type
 from streamlit.proto.Block_pb2 import Block as BlockProto
 from streamlit.proto.Common_pb2 import FileURLs
@@ -47,7 +49,11 @@ from streamlit_app import (
     _wrap_cue,
 )
 
-MOCK_WHISPER_RESULT = {
+# Spelled out: this is the pin, so importing RESULT_ICON would make it tautological.
+RESULT_HEADING = ":material/description: {}"
+
+# Annotated so ty reads result["text"] as Any rather than the literal's union.
+MOCK_WHISPER_RESULT: dict[str, Any] = {
     "text": "Hello world",
     "segments": [
         {
@@ -86,6 +92,11 @@ DOWNLOAD_HELP = (
 # --- Helpers ---
 
 
+def _status(mock_st):
+    # The handle _handle_transcription's `with st.status(...) as status:` binds.
+    return mock_st.status.return_value.__enter__.return_value
+
+
 def _make_file(name="interview.mp3", data=b"fake audio bytes"):
     f = MagicMock()
     f.name = name
@@ -99,12 +110,14 @@ def _make_transcription(
     filename="interview.mp3",
     text=None,
 ):
-    result = MOCK_WHISPER_RESULT
+    result: dict[str, Any] = MOCK_WHISPER_RESULT
     if text is not None:
-        # Only the keys _display_transcription and _format_srt read.
+        # Only the keys _format_srt and the transcript expression below read.
         result = {"text": text, "segments": [{"start": 0.0, "end": 2.5, "text": text}]}
     return {
-        "result": result,
+        # Mirrors _handle_transcription, which renders the text once at publish
+        # time and stores nothing of the raw mlx result.
+        "transcript": _format_srt(result) if include_subtitles else result["text"].strip(),
         "file_stem": file_stem,
         "filename": filename,
         "include_subtitles": include_subtitles,
@@ -157,6 +170,22 @@ def _clear_caches():
     # back would otherwise re-create the order-dependence above with nothing to
     # fail until someone remembered this line.
     st.cache_resource.clear()
+
+
+DOWNLOAD_LABEL = "Downloading model weights (first run only)..."
+
+
+@pytest.fixture(autouse=True)
+def mock_snapshot_download():
+    # _handle_transcription probes the weight cache through
+    # huggingface_hub.snapshot_download before its loop. Patched for every test,
+    # as a cache hit: otherwise the ~20 mocked _handle_transcription calls and
+    # every AppTest click would reach the Hub on each Stop-hook pytest, and the
+    # macos-14 runner, which has no cache, would download 1.5 GB. The module
+    # attribute is the target because the app calls it that way, so the one
+    # patch covers the imported module and the AppTest re-execution alike.
+    with patch("huggingface_hub.snapshot_download") as m:
+        yield m
 
 
 @pytest.fixture
@@ -340,8 +369,19 @@ STOCK_PRIMARY = "#ff4b4b"
 STOCK_RED = {"light": "#ff4b4b", "dark": "#ff2b2b"}
 
 
+def _config():
+    return tomllib.loads(CONFIG_PATH.read_text())
+
+
 def _theme():
-    return tomllib.loads(CONFIG_PATH.read_text())["theme"]
+    return _config()["theme"]
+
+
+def test_usage_stats_are_off():
+    # Read from the top-level table, not through _theme(): nothing else in the
+    # gate can see the config, so a dropped line would ship telemetry under a
+    # green gate. Why it is off: the comment above the key in config.toml.
+    assert _config()["browser"]["gatherUsageStats"] is False
 
 
 def _scalars(table):
@@ -711,7 +751,8 @@ def test_handle_transcription_stores_result(mock_transcribe, mock_st, mock_uploa
     transcriptions = mock_st.session_state["transcription"]
     assert len(transcriptions) == 1
     data = transcriptions[0]
-    assert data["result"] == MOCK_WHISPER_RESULT
+    assert set(data) == {"transcript", "file_stem", "filename", "include_subtitles"}
+    assert data["transcript"] == "Hello world"
     assert data["file_stem"] == "interview_mp3_transcript"
     assert data["filename"] == "interview.mp3"
     assert data["include_subtitles"] is False
@@ -724,7 +765,10 @@ def test_handle_transcription_stores_include_subtitles_true(
     _handle_transcription(
         [mock_uploaded_file], language=None, task="transcribe", include_subtitles=True
     )
-    assert mock_st.session_state["transcription"][0]["include_subtitles"] is True
+    data = mock_st.session_state["transcription"][0]
+    assert data["include_subtitles"] is True
+    # The flag decides the rendered text at publish time, not at display time.
+    assert data["transcript"] == SRT_HELLO
 
 
 @patch("streamlit_app._transcribe", side_effect=RuntimeError("Transcription produced no text"))
@@ -778,7 +822,7 @@ def test_handle_transcription_escapes_filename_in_status_label(mock_transcribe, 
     # filename would fetch on the happy path.
     _handle_transcription([_make_file(name="clip [1].mp3")], **_handle_transcription_kwargs())
 
-    status = mock_st.status.return_value.__enter__.return_value
+    status = _status(mock_st)
     status.update.assert_any_call(label=r"Transcribing clip \[1\].mp3 (1/1)...")
 
 
@@ -802,9 +846,96 @@ def test_handle_transcription_pluralizes_the_status_labels(
         **_handle_transcription_kwargs(),
     )
 
-    mock_st.status.assert_called_once_with(opening, expanded=True)
-    status = mock_st.status.return_value.__enter__.return_value
+    # Positional label only: expanded=True was dropped as inert (nothing renders
+    # inside the block, and the first per-file update clears the field), so a
+    # re-added one fails here and has to say what it is for.
+    mock_st.status.assert_called_once_with(opening)
+    status = _status(mock_st)
     status.update.assert_called_with(label=closing, state="complete")
+
+
+@patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
+def test_handle_transcription_probes_the_weight_cache_offline(
+    mock_transcribe, mock_st, mock_snapshot_download
+):
+    # The common path: weights cached, so the probe is one offline call and the
+    # first-run label never renders. local_files_only=True is the whole point --
+    # a bare snapshot_download resolves `main` against the Hub even when cached
+    # (two GETs per click) and would flash a false "first run" label every time.
+    _handle_transcription([_make_file()], **_handle_transcription_kwargs())
+
+    mock_snapshot_download.assert_called_once_with(repo_id=ASR_MODEL_REPO, local_files_only=True)
+    status = _status(mock_st)
+    assert call(label=DOWNLOAD_LABEL) not in status.update.call_args_list
+
+
+@patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
+def test_handle_transcription_labels_the_first_run_download(
+    mock_transcribe, mock_st, mock_snapshot_download
+):
+    # On a cache miss the label switches *before* the fetch -- the point of the
+    # feature, so the fetch stub reads the labels set so far at the moment it
+    # runs; an index comparison against the per-file label would pass with the
+    # update moved after the fetch. The fetch is the same
+    # snapshot_download(repo_id=...) mlx_whisper's load_model makes, so the
+    # model's own call then finds the weights cached.
+    status = _status(mock_st)
+    labels_at_fetch = []
+
+    def fetch(repo_id, **kwargs):
+        if kwargs.get("local_files_only"):
+            raise LocalEntryNotFoundError("miss")
+        labels_at_fetch.append([c.kwargs.get("label") for c in status.update.call_args_list])
+
+    mock_snapshot_download.side_effect = fetch
+
+    _handle_transcription([_make_file()], **_handle_transcription_kwargs())
+
+    assert mock_snapshot_download.call_args_list == [
+        call(repo_id=ASR_MODEL_REPO, local_files_only=True),
+        call(repo_id=ASR_MODEL_REPO),
+    ]
+    assert labels_at_fetch == [[DOWNLOAD_LABEL]]
+    mock_transcribe.assert_called_once()
+
+
+@patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
+def test_handle_transcription_labels_a_resumed_partial_download(
+    mock_transcribe, mock_st, mock_snapshot_download
+):
+    # An interrupted first run leaves a partial snapshot on disk. From
+    # huggingface-hub 1.22 the offline probe reports it as
+    # IncompleteSnapshotError, a LocalEntryNotFoundError subclass, so the
+    # resumed download is labelled too; below 1.22 it read as a hit and the
+    # resume ran unlabelled, which is why that version is the declared floor.
+    mock_snapshot_download.side_effect = [
+        IncompleteSnapshotError("partial", snapshot_path="/partial"),
+        None,
+    ]
+
+    _handle_transcription([_make_file()], **_handle_transcription_kwargs())
+
+    assert call(label=DOWNLOAD_LABEL) in _status(mock_st).update.call_args_list
+    mock_transcribe.assert_called_once()
+
+
+@patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
+def test_handle_transcription_leaves_a_failed_prefetch_to_the_loop(
+    mock_transcribe, mock_st, mock_snapshot_download
+):
+    # The prefetch is best-effort. If it fails (no network on a first run) the
+    # batch must still run: mlx_whisper retries the download inside its own
+    # call and *that* failure is caught per file and replayed as an alert, as it
+    # was before the probe existed. An exception escaping here instead would
+    # skip the replay and leave the status stuck on the download label.
+    mock_snapshot_download.side_effect = [LocalEntryNotFoundError("miss"), OSError("offline")]
+
+    _handle_transcription([_make_file()], **_handle_transcription_kwargs())
+
+    mock_transcribe.assert_called_once()
+    status = _status(mock_st)
+    status.update.assert_called_with(label="Transcribed 1/1 file", state="complete")
+    mock_st.error.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -1031,7 +1162,7 @@ def test_handle_transcription_renders_errors_after_the_status_closes(mock_transc
     names = [c[0] for c in mock_st.mock_calls]
     assert names.index("error") > names.index("status().__exit__")
     # And a batch that lost a file is not "complete".
-    status = mock_st.status.return_value.__enter__.return_value
+    status = _status(mock_st)
     status.update.assert_called_with(label="Transcribed 0/1 file", state="error")
 
 
@@ -1174,7 +1305,7 @@ def test_display_transcription_shows_transcript(mock_st):
         label_visibility="collapsed",
         key="transcript_b0_0",
     )
-    mock_st.subheader.assert_called_once_with("interview.mp3")
+    mock_st.subheader.assert_called_once_with(RESULT_HEADING.format("interview.mp3"))
 
 
 def test_display_transcription_txt_download(mock_st):
@@ -1211,21 +1342,6 @@ def test_display_transcription_srt_download(mock_st):
         on_click="ignore",
         width=BUTTON_WIDTH,
     )
-
-
-def test_display_transcription_subtitles_on(mock_st):
-    mock_st.session_state["transcription"] = [_make_transcription(include_subtitles=True)]
-
-    _display_transcription()
-
-    mock_st.text_area.assert_called_once_with(
-        "Transcript",
-        SRT_HELLO,
-        height=TRANSCRIPT_HEIGHT,
-        label_visibility="collapsed",
-        key="transcript_b0_0",
-    )
-    mock_st.subheader.assert_called_once_with("interview.mp3")
 
 
 def test_display_transcription_download_reflects_edits(mock_st):
@@ -1277,8 +1393,8 @@ def test_display_transcription_multiple_files(mock_st):
     assert mock_st.text_area.call_count == 2
     assert mock_st.download_button.call_count == 2
     assert mock_st.subheader.call_count == 2
-    mock_st.subheader.assert_any_call("first.mp3")
-    mock_st.subheader.assert_any_call("second.mp3")
+    mock_st.subheader.assert_any_call(RESULT_HEADING.format("first.mp3"))
+    mock_st.subheader.assert_any_call(RESULT_HEADING.format("second.mp3"))
 
 
 def test_display_transcription_escapes_filename_in_subheader(mock_st):
@@ -1286,7 +1402,7 @@ def test_display_transcription_escapes_filename_in_subheader(mock_st):
 
     _display_transcription()
 
-    mock_st.subheader.assert_called_once_with(r"my\_song \[live\].mp3")
+    mock_st.subheader.assert_called_once_with(RESULT_HEADING.format(r"my\_song \[live\].mp3"))
 
 
 def test_display_transcription_collapses_whitespace_in_subheader(mock_st):
@@ -1305,7 +1421,7 @@ def test_display_transcription_collapses_whitespace_in_subheader(mock_st):
 
     _display_transcription()
 
-    mock_st.subheader.assert_called_once_with("clip # Big > quote.mp3")
+    mock_st.subheader.assert_called_once_with(RESULT_HEADING.format("clip # Big > quote.mp3"))
 
 
 def test_display_transcription_keys_are_namespaced_by_batch(mock_st):
@@ -1625,14 +1741,40 @@ def test_validate_time_range_invalid(raw):
 APP_PATH = Path(__file__).resolve().parent.parent / "streamlit_app.py"
 
 
+def _app():
+    # The one place the script is loaded for AppTest. default_timeout=5 is a
+    # *lowering* from the 30 the file started with (8fca5b9, "faster failure
+    # feedback"), not a raise from AppTest's default of 3 for a cold import: the
+    # heavy imports are warm from collection, so a run takes ~0.07 s here and
+    # the 5 s is headroom for a hung script, not a need.
+    return AppTest.from_file(str(APP_PATH), default_timeout=5)
+
+
+def _run(target):
+    """Run `target` and fail if the script crashed, returning the AppTest root.
+
+    AppTest.run() does not raise on an uncaught script exception: it lands in
+    at.exception, and `at.error == []` or an empty download list both hold on
+    the crashed run, so an absence-only case would pass green on a crash.
+    `target` is the AppTest itself or a widget -- set_value() and click() return
+    the widget, and Element.run() returns the root. One consequence: a case for
+    the st.exception(unexpected) branch cannot go through here, because
+    at.exception collects st.exception elements too; it has to build _app() and
+    seed the uploader directly.
+    """
+    at = target.run()
+    assert not at.exception, [f"{e.proto.type}: {e.value}" for e in at.exception]
+    return at
+
+
 def _run_app(transcription=None, active_tab=None):
-    at = AppTest.from_file(str(APP_PATH), default_timeout=5)
+    at = _app()
     if transcription is not None:
         at.session_state["transcription"] = transcription
     if active_tab is not None:
         # AppTest has no tab-selection API; st.tabs' `key` holds the active label.
         at.session_state["input_tabs"] = active_tab
-    return at.run()
+    return _run(at)
 
 
 def test_page_config():
@@ -1645,8 +1787,17 @@ def test_page_config():
 
 def test_app_renders_without_exception():
     at = _run_app()
-    assert not at.exception
     assert [t.value for t in at.title] == ["Whisper Transcribe"]
+
+
+def test_logo_is_the_page_icon_glyph():
+    # Not in AppTest's element tree -- the logo ForwardMsg carries no delta and
+    # parse_tree_from_messages drops it -- so the call is observed the way
+    # _recording observes st.audio_input: patched on the streamlit module the
+    # script reaches at call time. Deleting the st.logo line fails only here.
+    with patch("streamlit.logo") as logo:
+        _run_app()
+    logo.assert_called_once_with(":material/graphic_eq:", size="small")
 
 
 def test_tabs_have_material_icon_labels():
@@ -1671,22 +1822,21 @@ def test_transcribe_button_has_icon_and_is_disabled_without_audio():
 
 def test_invalid_time_range_shows_inline_error():
     at = _run_app()
-    next(t for t in at.text_input if t.label == "Time range").set_value("90,30").run()
+    _run(next(t for t in at.text_input if t.label == "Time range").set_value("90,30"))
     assert [e.value for e in at.error] == [_validate_time_range("90,30")]
 
 
 def test_valid_time_range_shows_no_error():
     at = _run_app()
-    next(t for t in at.text_input if t.label == "Time range").set_value("30,90").run()
+    _run(next(t for t in at.text_input if t.label == "Time range").set_value("30,90"))
     assert at.error == []
 
 
 def test_results_render_download_button_with_icon():
     # Seeded results render through the st.fragment(_display_transcription)() wrap.
     at = _run_app([_make_transcription()])
-    assert not at.exception
     # at.main, not at: the sidebar's "Settings" heading is a subheader too.
-    assert [s.value for s in at.main.subheader] == ["interview.mp3"]
+    assert [s.value for s in at.main.subheader] == [RESULT_HEADING.format("interview.mp3")]
     assert at.text_area[0].value == "Hello world"
     download = at.get("download_button")[0]
     assert download.label == "Download"
@@ -1822,7 +1972,7 @@ def test_time_range_error_renders_beside_the_transcribe_button():
     # The input is in the sidebar's collapsed expander; the alert it produces
     # belongs next to the button it disables, not next to the input.
     at = _run_app()
-    next(t for t in at.text_input if t.label == "Time range").set_value("90,30").run()
+    _run(next(t for t in at.text_input if t.label == "Time range").set_value("90,30"))
     input_col, results_col = at.main.columns
     assert [e.value for e in input_col.error] == [_validate_time_range("90,30")]
     assert at.sidebar.error == [] and results_col.error == []
@@ -1840,7 +1990,7 @@ def _publish(at, transcription, batch):
     # that namespaces the transcript widget keys.
     at.session_state["transcription"] = transcription
     at.session_state["batch_id"] = batch
-    return at.run()
+    return _run(at)
 
 
 def test_new_batch_replaces_previous_transcript_text():
@@ -1849,17 +1999,16 @@ def test_new_batch_replaces_previous_transcript_text():
     # text under the new filename -- and the Download button, whose payload is
     # the text area's return value, serves it. This needs two renders with
     # different data; no single-render test can see it.
-    at = AppTest.from_file(str(APP_PATH), default_timeout=5)
+    at = _app()
     _publish(at, [_make_transcription(filename="first.mp3")], batch=1)
     assert at.text_area[0].value == "Hello world"
 
     # Edits must still stick *within* a batch -- that is the point of the key.
-    at.text_area[0].set_value("edited by hand").run()
+    _run(at.text_area[0].set_value("edited by hand"))
     assert at.text_area[0].value == "edited by hand"
 
     _publish(at, [_make_transcription(filename="second.mp3", text="Second file text")], batch=2)
-    assert not at.exception
-    assert [s.value for s in at.main.subheader] == ["second.mp3"]
+    assert [s.value for s in at.main.subheader] == [RESULT_HEADING.format("second.mp3")]
     assert at.text_area[0].value == "Second file text"
 
 
@@ -1867,7 +2016,7 @@ def test_new_batch_replaces_previous_transcript_when_subtitles_toggled():
     # Flipping include_subtitles changes only the *download* key (txt -> srt),
     # so without the batch namespace the transcript text area stays stale and
     # the SRT cues never reach the screen.
-    at = AppTest.from_file(str(APP_PATH), default_timeout=5)
+    at = _app()
     _publish(at, [_make_transcription(filename="first.mp3")], batch=1)
     assert at.text_area[0].value == "Hello world"
 
@@ -1880,7 +2029,6 @@ def test_new_batch_replaces_previous_transcript_when_subtitles_toggled():
         ],
         batch=2,
     )
-    assert not at.exception
     assert at.text_area[0].value == "1\n00:00:00,000 --> 00:00:02,500\nSecond file text\n"
 
 
@@ -1900,7 +2048,7 @@ def _upload(at, name="upload.mp3", data=b"upload bytes", mime="audio/mpeg"):
     # registers with writes_allowed=False, so session_state cannot plant one.
     # See _recording for the route that can.
     at.file_uploader[0].set_value([(name, data, mime)])
-    return at.run()
+    return _run(at)
 
 
 def _recording(name="recording.wav", data=b"wav bytes"):
@@ -1936,7 +2084,6 @@ def _assert_declared_mime(element, mime):
 
 def test_upload_preview_renders_with_its_declared_mime():
     at = _upload(_run_app(), name="clip.mp3", mime="audio/mpeg")
-    assert not at.exception
     previews = _tab(at, UPLOAD_TAB).get("audio")
     assert len(previews) == 1
     # Pins the format= wiring: test_media_mime covers *which* mimetype is chosen,
@@ -1944,6 +2091,21 @@ def test_upload_preview_renders_with_its_declared_mime():
     # from the st.audio call serves every preview as .wav again, and nothing
     # else in the suite can see that.
     _assert_declared_mime(previews[0], "audio/mpeg")
+
+
+def test_upload_preview_is_not_rendered_while_the_record_tab_is_open():
+    # The preview loop is gated on `upload_tab.open`. Every st.audio call copies
+    # the upload's bytes into the MediaFileManager -- a real second buffer, up
+    # to 500 MB per file, since the widget hands the script a deepcopy on each
+    # run -- and ungated it was re-emitted on every run for the rest of the
+    # session, the Record tab included. The gate is live under AppTest (the
+    # default-tab case above renders one element; this renders none), and the
+    # suite is green with or without it otherwise, so this is its only pin.
+    at = _upload(_run_app(active_tab=RECORD_TAB))
+    assert _tab(at, UPLOAD_TAB).get("audio") == []
+    # The upload itself is still loaded -- only the preview is gated -- so
+    # Transcribe stays enabled through the fallback dispatch.
+    assert at.button[0].disabled is False
 
 
 def test_upload_enables_transcribe():
@@ -1954,35 +2116,66 @@ def test_upload_enables_transcribe():
 def test_transcription_failure_renders_an_escaped_alert():
     # The one case that pushes an _error message through the *real* st.error
     # rather than mock_st: a per-file RuntimeError must surface as an alert on
-    # the page, escaped, with no traceback. `assert not at.exception` is the
-    # discriminating half -- the unexpected-exception branch attaches one via
-    # st.exception, so a message-only check would not separate the two.
+    # the page, escaped, with no traceback. _run's `assert not at.exception` is
+    # the discriminating half here -- the unexpected-exception branch attaches
+    # one via st.exception, so a message-only check would not separate the two.
     with patch("mlx_whisper.transcribe", side_effect=RuntimeError("Failed to load audio")):
         at = _upload(_run_app(), name="my_clip.mp3")
-        at.button[0].click().run()
+        _run(at.button[0].click())
 
-    assert not at.exception
     input_col, results_col = at.main.columns
     # Scoped to the results column: the replay renders where the status does.
     assert [e.value for e in results_col.error] == [
         r"Transcription failed for my\_clip.mp3\: Failed to load audio"
     ]
+    # ...and *after* the status block, not inside it. Block.__iter__ yields every
+    # descendant, so a column's .error includes alerts rendered into its
+    # st.status body -- the original defect, an alert in a collapsed box under a
+    # green check, passes the assertion above. Only the status's own scope can
+    # tell the two apart; the mocked __exit__-ordering case is the other pin.
+    assert results_col.status[0].error == []
     assert input_col.error == [] and at.sidebar.error == []
     assert at.session_state["transcription"] == []
     # No "Transcripts appear here" under the failure on the click run...
     assert results_col.caption == []
     # ...and the hint is back on the next run, when the alerts are gone; the
     # button's click does not survive a rerun, so batch_just_ran is False.
-    at.run()
+    _run(at)
     _, results_col = at.main.columns
     assert results_col.error == [] and results_col.status == []
     assert [c.value for c in results_col.caption] == [EMPTY_RESULTS_HINT]
 
 
+def test_result_cards_keep_their_slot_across_the_click_run():
+    # The results column reserves a slot above the cards, so the fragment block
+    # holding them is the column's second child on the click run (status in the
+    # slot) *and* on the run after it (slot empty). Without the slot the cards
+    # were index 1 then index 0, and the frontend, which matches blocks by
+    # position, remounted every card on the first rerun after a batch.
+    def _shape(at):
+        _, results_col = at.main.columns
+        return [
+            [type(g).__name__ for g in child.children.values()]
+            for _, child in sorted(results_col.children.items())
+            if isinstance(child, Block)
+        ]
+
+    with patch("mlx_whisper.transcribe", return_value=MOCK_WHISPER_RESULT):
+        at = _upload(_run_app())
+        _run(at.button[0].click())
+    assert _shape(at) == [["Status"], ["Block"]]
+    _run(at)
+    assert _shape(at) == [[], ["Block"]]
+    # And with no result at all the slot holds the hint's bordered box and
+    # nothing follows it -- the hint half of the rule; rendered outside the
+    # slot it reads [[], ["Caption"]].
+    assert _shape(_run_app()) == [["Block"]]
+
+
 def test_transcription_status_renders_in_the_results_column():
     with patch("mlx_whisper.transcribe", return_value=MOCK_WHISPER_RESULT):
         at = _upload(_run_app())
-        at.button[0].click().run()
+        _run(at.button[0].click())
     input_col, results_col = at.main.columns
     assert [(s.label, s.state) for s in results_col.status] == [
         ("Transcribed 1/1 file", "complete")
@@ -2029,9 +2222,8 @@ def test_transcribe_runs_the_open_tab_over_a_loaded_upload():
     # from st.tabs so every `.open` reads None and the helper falls back.
     with _recording(), patch("mlx_whisper.transcribe", return_value=MOCK_WHISPER_RESULT):
         at = _upload(_run_app(active_tab=RECORD_TAB))
-        at.button[0].click().run()
+        _run(at.button[0].click())
 
-    assert not at.exception
     assert [d["filename"] for d in at.session_state["transcription"]] == ["recording.wav"]
 
 
@@ -2043,9 +2235,8 @@ def test_transcribe_falls_back_to_a_loaded_upload_from_an_empty_tab():
     # cannot silently make Transcribe dead. The winning half is the case above.
     with patch("mlx_whisper.transcribe", return_value=MOCK_WHISPER_RESULT):
         at = _upload(_run_app(active_tab=RECORD_TAB))
-        at.button[0].click().run()
+        _run(at.button[0].click())
 
-    assert not at.exception
     assert [d["filename"] for d in at.session_state["transcription"]] == ["upload.mp3"]
 
 
@@ -2082,8 +2273,7 @@ def test_transcript_format_drives_include_subtitles(choice, expected):
     # the download's extension and the text area's contents.
     with patch("mlx_whisper.transcribe", return_value=MOCK_WHISPER_RESULT):
         at = _upload(_run_app())
-        at.segmented_control[0].set_value(choice).run()
-        at.button[0].click().run()
+        _run(at.segmented_control[0].set_value(choice))
+        _run(at.button[0].click())
 
-    assert not at.exception
     assert at.session_state["transcription"][0]["include_subtitles"] is expected
