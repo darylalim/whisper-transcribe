@@ -18,9 +18,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "input=$(cat); [ \"$(printf '%s' \"$input\" | jq -r '.stop_hook_active // false')\" = true ] && exit 0; cd \"${CLAUDE_PROJECT_DIR:-.}\" || exit 0; out=$(uv lock --check 2>&1 && uv run ruff check -q . 2>&1 && uv run ruff format --check -q . 2>&1 && uv run ty check 2>&1 && uv run pytest -q 2>&1) || printf '%s' \"$out\" | jq -Rs '{decision:\"block\",reason:(\"local checks failed - fix before finishing:\\n\"+.)}'",
+            "command": "input=$(cat); [ \"$(printf '%s' \"$input\" | jq -r '.stop_hook_active // false')\" = true ] && exit 0; cd \"${CLAUDE_PROJECT_DIR:-.}\" || exit 0; out=$(uv lock --check 2>&1 && uv run python -c \"import sys; n = len(open('CLAUDE.md', encoding='utf-8').read().encode('utf-16-le')) // 2; print(f'CLAUDE.md is {n} chars; Claude Code warns above 150000'); sys.exit(n > 150000)\" 2>&1 && uv run ruff check -q . 2>&1 && uv run ruff format --check -q . 2>&1 && uv run ty check 2>&1 && uv run pytest -q 2>&1) || printf '%s' \"$out\" | jq -Rs '{decision:\"block\",reason:(\"local checks failed - fix before finishing:\\n\"+.)}'",
             "timeout": 120,
-            "statusMessage": "uv lock + ruff + ty + pytest"
+            "statusMessage": "uv lock + CLAUDE.md size + ruff + ty + pytest"
           }
         ]
       }

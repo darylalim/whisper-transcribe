@@ -36,6 +36,11 @@ jobs:
           enable-cache: true # mlx-whisper pulls torch (~520 MB); a cold cache dominates the run
 
       - run: uv sync --locked
+      # Claude Code loads CLAUDE.md whole and warns above 150,000 chars on a
+      # 1M-context model. It measures JS string length (UTF-16 code units), so
+      # count the same way — `wc -m` reports bytes under a C locale. Mirrored
+      # in the Stop hook; see "Automation" in CLAUDE.md.
+      - run: uv run python -c "import sys; n = len(open('CLAUDE.md', encoding='utf-8').read().encode('utf-16-le')) // 2; print(f'CLAUDE.md is {n} chars; Claude Code warns above 150000'); sys.exit(n > 150000)"
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run ty check
