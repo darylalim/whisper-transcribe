@@ -29,6 +29,7 @@ The same figures in sequence, so the next re-measure can append a line rather th
 - `9f2e57d` (2026-09-15, `refactor: remove the YouTube and URL input tabs`) — 89 functions (163 cases) after the removal
 - the sidebar + two-column layout — 100 functions (174 cases); the gate re-measured at 4.4 s, `pytest` ~3.9 s of it
 - the theme cases — 105 functions (181 cases), `pytest` ~3.8 s
-- the best-practices fixes (usage stats off, the HF cache probe, the reserved status slot, the gated preview, `_run`, the logo pin) — 112 functions (188 cases), `pytest` ~3.9 s on an idle machine (the re-measure ran beside a game at 228 % CPU and read 12 s, which is the machine, not the suite); the count `CLAUDE.md` carries now
+- the best-practices fixes (usage stats off, the HF cache probe, the reserved status slot, the gated preview, `_run`, the logo pin) — 112 functions (188 cases), `pytest` ~3.9 s on an idle machine (the re-measure ran beside a game at 228 % CPU and read 12 s, which is the machine, not the suite)
+- the code-review follow-up (the publish moved after the probe, a non-miss probe failure swallowed) — 114 functions (190 cases), `pytest` ~4.1 s; the count `CLAUDE.md` carries now
 
 The growth is test count throughout — no dependency change moved the gate — and `pytest` is the whole of it: `ty` is ~0.2 s and the three `uv`/`ruff` steps under 0.1 s combined, which is why the hooks bullet under **Automation** records that adding the two `ruff` steps to the gate cost ~50 ms, indistinguishable within run-to-run noise.

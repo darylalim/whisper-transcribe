@@ -938,6 +938,50 @@ def test_handle_transcription_leaves_a_failed_prefetch_to_the_loop(
     mock_st.error.assert_not_called()
 
 
+@patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
+def test_handle_transcription_keeps_the_previous_batch_when_the_prefetch_is_interrupted(
+    mock_transcribe, mock_st, mock_snapshot_download
+):
+    # The [] publish and the batch_id bump sit *after* the probe. A rerun request
+    # that lands during the first-run download (a tab switch, any widget) is
+    # raised at the next yield point -- that publish -- as RerunException, a
+    # BaseException; with the publish first, it had already wiped the previous
+    # batch, so the interrupted first run left an empty results column.
+    class _Interrupt(BaseException):
+        pass
+
+    mock_st.session_state["transcription"] = [_make_transcription(filename="previous.mp3")]
+    mock_st.session_state["batch_id"] = 3
+    mock_snapshot_download.side_effect = [LocalEntryNotFoundError("miss"), _Interrupt()]
+
+    with pytest.raises(_Interrupt):
+        _handle_transcription([_make_file()], **_handle_transcription_kwargs())
+
+    assert [d["filename"] for d in mock_st.session_state["transcription"]] == ["previous.mp3"]
+    assert mock_st.session_state["batch_id"] == 3
+    mock_transcribe.assert_not_called()
+
+
+@patch("streamlit_app._transcribe", return_value=MOCK_WHISPER_RESULT)
+def test_handle_transcription_ignores_a_probe_failure_that_is_not_a_miss(
+    mock_transcribe, mock_st, mock_snapshot_download
+):
+    # Anything but LocalEntryNotFoundError out of the probe -- an unreadable ref,
+    # a repo id the Hub validator rejects -- is not a miss: no label, no
+    # prefetch, and the batch runs as it did before the probe existed. Escaping
+    # the status block instead would skip the failure replay entirely.
+    mock_snapshot_download.side_effect = OSError("unreadable ref")
+
+    _handle_transcription([_make_file()], **_handle_transcription_kwargs())
+
+    mock_snapshot_download.assert_called_once_with(repo_id=ASR_MODEL_REPO, local_files_only=True)
+    status = _status(mock_st)
+    assert call(label=DOWNLOAD_LABEL) not in status.update.call_args_list
+    status.update.assert_called_with(label="Transcribed 1/1 file", state="complete")
+    mock_transcribe.assert_called_once()
+    mock_st.error.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "message,expected",
     [

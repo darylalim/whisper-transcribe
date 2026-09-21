@@ -515,18 +515,6 @@ def _handle_transcription(
     # suggested a failure had happened or that anything was hidden, which is the
     # part that made it a defect rather than a disclosure.
     failures: list[tuple[str, Exception | None]] = []
-    # Publish up front so a previous batch is cleared even if nothing succeeds
-    # here. Streamlit interrupts a running script at the next ForwardMsg — the
-    # status.update() below is such a point, and RerunException is a
-    # BaseException that `except Exception` will not catch — so assigning only
-    # after the loop would discard every file already transcribed.
-    st.session_state["transcription"] = transcriptions
-    # Bump the batch id alongside that publish so _display_transcription's widget
-    # keys change with the batch. A keyed st.text_area restores its session-state
-    # value and ignores the `value` argument, so reusing transcript_{i} across
-    # batches renders the *previous* batch's text under the new filename — and the
-    # Download button, whose payload is the text area's return value, serves it.
-    st.session_state["batch_id"] = st.session_state.get("batch_id", 0) + 1
     total = len(uploaded_files)
     try:
         # No expanded=True: nothing renders inside the block, and the first
@@ -550,10 +538,9 @@ def _handle_transcription(
             # mid-session re-downloads under this label although the model is
             # already resident (ModelHolder holds it for the process); and a
             # rerun request that lands during the prefetch is raised at the
-            # loop's first per-file label, before _transcribe runs, so that
-            # batch aborts with [] published -- before the probe the download
-            # ran inside _transcribe and the first file's in-place append had
-            # landed before the next yield point (CLAUDE.md, "Model").
+            # publish below, so that batch never starts -- before the probe the
+            # download ran inside _transcribe and the first file's in-place
+            # append had landed before the next yield point (CLAUDE.md, "Model").
             try:
                 huggingface_hub.snapshot_download(repo_id=ASR_MODEL_REPO, local_files_only=True)
             except LocalEntryNotFoundError:
@@ -567,6 +554,32 @@ def _handle_transcription(
                 # and leave the status stuck on this label under a traceback.
                 with contextlib.suppress(Exception):
                     huggingface_hub.snapshot_download(repo_id=ASR_MODEL_REPO)
+            except Exception:
+                # Any other probe failure -- an unreadable ref under a mangled
+                # HF_HUB_CACHE, an ASR_MODEL_REPO that is a local directory,
+                # which load_model accepts and the Hub validator does not -- is
+                # not a miss and must not break the batch: no label, no
+                # prefetch, and the loop behaves exactly as it did before the
+                # probe existed, catching whatever mlx_whisper raises per file.
+                pass
+            # Publish here, after the probe and before the loop, so a previous
+            # batch is cleared even if nothing succeeds -- Streamlit interrupts a
+            # running script at the next yield point (a ForwardMsg such as
+            # status.update(), or this very session_state write) by raising
+            # RerunException, a BaseException that `except Exception` will not
+            # catch, so assigning only after the loop would discard every file
+            # already transcribed. After the probe rather than before it, so a
+            # rerun request that lands during the first-run download is raised
+            # at this write, with the previous batch still on screen, instead of
+            # after a publish that had already wiped it.
+            st.session_state["transcription"] = transcriptions
+            # Bump the batch id alongside that publish so _display_transcription's
+            # widget keys change with the batch. A keyed st.text_area restores its
+            # session-state value and ignores the `value` argument, so reusing
+            # transcript_{i} across batches renders the *previous* batch's text
+            # under the new filename -- and the Download button, whose payload is
+            # the text area's return value, serves it.
+            st.session_state["batch_id"] = st.session_state.get("batch_id", 0) + 1
             for i, uploaded_file in enumerate(uploaded_files, start=1):
                 # Escape before interpolating anywhere Markdown renders. An st.status
                 # label takes the Markdown label subset — which includes images, so a
@@ -897,7 +910,12 @@ with input_col:
         # back is already a rerun (on_change="rerun"), so the preview returns
         # with the tab. Residue: the hidden panel is force-mounted, so the
         # player unmounts while Record is open and its playback position resets.
-        if upload_tab.open:
+        # `is not False`, not truthiness: TabContainer.open is None when st.tabs
+        # is not tracking state (no on_change="rerun"), and None here must mean
+        # "ungated", the pre-gate behaviour, not "closed" -- the same degrade
+        # rule _active_sources applies, so a dropped on_change costs the
+        # dispatch its open-tab preference and not every preview.
+        if upload_tab.open is not False:
             for uploaded_file in uploaded_files:
                 st.audio(uploaded_file, format=_media_mime(uploaded_file.name))
 
